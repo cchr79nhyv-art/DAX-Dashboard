@@ -1,0 +1,1982 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>DAX Analyse Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://s3.tradingview.com/tv.js"></script>
+<style>
+  :root {
+    --bg: #0b0f1a;
+    --card: #141928;
+    --card2: #1a2035;
+    --border: #252d47;
+    --text: #e2e8f0;
+    --muted: #7a8aaa;
+    --green: #00e676;
+    --green-dim: rgba(0,230,118,0.12);
+    --red: #ff1744;
+    --red-dim: rgba(255,23,68,0.12);
+    --yellow: #ffd600;
+    --blue: #2979ff;
+    --accent: #3d5afe;
+    --gold: #ffd700;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header-logo { display: flex; align-items: center; gap: 8px; }
+  .header-logo span { font-size: 20px; }
+  .header-title { font-size: 16px; font-weight: 700; color: var(--text); }
+  .header-sub { font-size: 11px; color: var(--muted); }
+  .header-right { display: flex; align-items: center; gap: 8px; }
+  .time-badge {
+    font-size: 11px; color: var(--muted);
+    background: var(--card2); border: 1px solid var(--border);
+    padding: 4px 8px; border-radius: 6px;
+  }
+  .refresh-btn {
+    background: var(--accent); border: none; color: white;
+    padding: 6px 12px; border-radius: 8px; cursor: pointer;
+    font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 5px;
+    transition: opacity 0.2s;
+  }
+  .refresh-btn:hover { opacity: 0.85; }
+  .refresh-btn.loading { opacity: 0.6; pointer-events: none; }
+
+  /* ── LAYOUT ── */
+  .main { padding: 12px; max-width: 1200px; margin: 0 auto; }
+
+  /* ── INDEX HERO ── */
+  .index-hero {
+    background: linear-gradient(135deg, #141928 0%, #1a2035 100%);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 12px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: center;
+  }
+  .index-name { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .index-price { font-size: 36px; font-weight: 800; margin: 4px 0; }
+  .index-change { font-size: 15px; font-weight: 600; }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .neutral { color: var(--muted); }
+
+  .sentiment-box { text-align: right; }
+  .sentiment-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .sentiment-gauge {
+    position: relative;
+    height: 8px; border-radius: 4px;
+    background: linear-gradient(to right, var(--red), var(--yellow), var(--green));
+    margin-bottom: 6px;
+  }
+  .sentiment-needle {
+    position: absolute; top: -4px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: white; border: 2px solid #333;
+    transform: translateX(-50%);
+    transition: left 0.8s ease;
+  }
+  .sentiment-score { font-size: 28px; font-weight: 800; }
+  .sentiment-text { font-size: 12px; color: var(--muted); }
+  .index-meta { grid-column: 1 / -1; display: flex; gap: 20px; flex-wrap: wrap; }
+  .meta-item { }
+  .meta-val { font-size: 13px; font-weight: 600; }
+  .meta-lbl { font-size: 10px; color: var(--muted); }
+
+  /* ── CHART AREA ── */
+  .chart-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .chart-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px; flex-wrap: wrap; gap: 8px;
+  }
+  .chart-title { font-size: 14px; font-weight: 700; }
+  .chart-tabs { display: flex; gap: 4px; }
+  .chart-tab {
+    padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: transparent; color: var(--muted); cursor: pointer; font-size: 12px;
+    transition: all 0.15s;
+  }
+  .chart-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .chart-wrap { position: relative; height: 240px; }
+  .chart-wrap-sm { position: relative; height: 100px; }
+  .indicator-row {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px;
+    padding-top: 10px; border-top: 1px solid var(--border);
+  }
+  .indicator-pill {
+    padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+    border: 1px solid;
+  }
+  .pill-bull { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+  .pill-bear { background: var(--red-dim); border-color: var(--red); color: var(--red); }
+  .pill-neut { background: rgba(122,138,170,0.12); border-color: var(--muted); color: var(--muted); }
+
+  /* ── SECTION TITLE ── */
+  .section-title {
+    font-size: 13px; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 8px; margin-top: 4px;
+    display: flex; align-items: center; gap: 6px;
+  }
+
+  /* ── COMPANIES TABLE ── */
+  .table-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .table-card-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; border-collapse: collapse; min-width: 600px; }
+  th {
+    padding: 8px 12px; text-align: left; font-size: 10px;
+    font-weight: 700; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.5px; border-bottom: 1px solid var(--border);
+    white-space: nowrap; cursor: pointer; user-select: none;
+  }
+  th:hover { color: var(--text); }
+  td {
+    padding: 9px 12px; border-bottom: 1px solid rgba(37,45,71,0.5);
+    font-size: 13px; white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  .company-name { font-weight: 600; }
+  .company-sector { font-size: 10px; color: var(--muted); }
+  .price-cell { font-weight: 700; font-family: monospace; }
+  .change-badge {
+    display: inline-block; padding: 2px 7px; border-radius: 5px;
+    font-size: 12px; font-weight: 700; font-family: monospace;
+  }
+  .ta-score-cell { min-width: 100px; }
+  .ta-bar-wrap {
+    display: flex; align-items: center; gap: 6px;
+  }
+  .ta-bar {
+    flex: 1; height: 6px; border-radius: 3px;
+    background: var(--card2); overflow: hidden;
+  }
+  .ta-bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+  .ta-pct { font-size: 12px; font-weight: 700; min-width: 36px; text-align: right; }
+  .ta-signal { font-size: 10px; }
+  .skeleton { background: var(--card2); border-radius: 4px; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ── COMMODITIES ── */
+  .commodities-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  @media(min-width:600px) {
+    .commodities-grid { grid-template-columns: repeat(4, 1fr); }
+  }
+  .commodity-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+  }
+  .commodity-icon { font-size: 20px; margin-bottom: 6px; }
+  .commodity-name { font-size: 11px; color: var(--muted); }
+  .commodity-price { font-size: 18px; font-weight: 800; margin: 3px 0; }
+  .commodity-change { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+  .commodity-ta { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  /* ── NEWS ── */
+  .news-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .news-header {
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .news-list { }
+  .news-item {
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(37,45,71,0.5);
+    display: flex; gap: 12px; align-items: flex-start;
+    text-decoration: none; color: inherit;
+    transition: background 0.15s;
+  }
+  .news-item:hover { background: rgba(255,255,255,0.02); }
+  .news-item:last-child { border-bottom: none; }
+  .news-impact {
+    flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; margin-top: 5px;
+  }
+  .impact-high { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .impact-med  { background: var(--yellow); }
+  .impact-low  { background: var(--muted); }
+  .news-body { flex: 1; min-width: 0; }
+  .news-headline { font-size: 13px; font-weight: 600; line-height: 1.4; margin-bottom: 4px; }
+  .news-meta { font-size: 11px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+  .news-source { color: var(--blue); }
+
+  /* ── DISCLAIMER ── */
+  .disclaimer {
+    text-align: center; font-size: 10px; color: var(--muted);
+    padding: 16px; line-height: 1.6;
+  }
+
+  /* ── LOADING OVERLAY ── */
+  .loading-overlay {
+    position: fixed; inset: 0; background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 999; gap: 16px;
+  }
+  .loading-overlay.hidden { display: none; }
+  .spinner {
+    width: 48px; height: 48px; border: 3px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { color: var(--muted); font-size: 14px; }
+
+  /* ── ERROR BANNER ── */
+  .error-banner {
+    background: var(--red-dim); border: 1px solid var(--red);
+    border-radius: 10px; padding: 10px 14px;
+    font-size: 12px; color: var(--red); margin-bottom: 12px;
+    display: none;
+  }
+
+  /* ── SETTINGS MODAL ── */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center; z-index: 200;
+  }
+  .modal-bg.hidden { display: none; }
+  .modal {
+    background: var(--card); border: 1px solid var(--border); border-radius: 20px;
+    padding: 24px; width: 90%; max-width: 400px;
+  }
+  .modal-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+  .modal-sub { font-size: 12px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+  .form-group { margin-bottom: 14px; }
+  .form-label { font-size: 11px; color: var(--muted); font-weight: 600; margin-bottom: 5px; display: block; text-transform: uppercase; }
+  .form-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; color: var(--text); font-size: 13px;
+    outline: none;
+  }
+  .form-input:focus { border-color: var(--accent); }
+  .form-hint { font-size: 10px; color: var(--muted); margin-top: 4px; }
+  .modal-btns { display: flex; gap: 10px; margin-top: 20px; }
+  .btn-primary {
+    flex: 1; background: var(--accent); border: none; color: white;
+    padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer;
+  }
+  .btn-secondary {
+    flex: 1; background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: 12px; border-radius: 10px; font-size: 14px; cursor: pointer;
+  }
+
+  /* ── SETTINGS ICON ── */
+  .settings-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 16px;
+  }
+
+  /* ── MARKET STATUS ── */
+  .market-status {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; padding: 4px 10px; border-radius: 20px;
+    border: 1px solid;
+  }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; }
+  .status-open { color: var(--green); border-color: rgba(0,230,118,0.3); background: var(--green-dim); }
+  .status-open .status-dot { background: var(--green); animation: blink 1.5s infinite; }
+  .status-closed { color: var(--muted); border-color: var(--border); }
+  .status-closed .status-dot { background: var(--muted); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ── RESPONSIVE ── */
+  @media(max-width:480px) {
+    .index-hero { grid-template-columns: 1fr; }
+    .sentiment-box { text-align: left; }
+    .index-price { font-size: 28px; }
+  }
+
+  /* ── AUTO-REFRESH BAR ── */
+  .refresh-bar {
+    background: var(--card2);
+    border-bottom: 1px solid var(--border);
+    padding: 7px 16px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .refresh-bar-label { font-size: 11px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+  .refresh-toggle {
+    display: flex; align-items: center; gap: 6px; cursor: pointer;
+  }
+  .toggle-switch {
+    width: 36px; height: 20px; background: var(--border); border-radius: 10px;
+    position: relative; transition: background 0.2s; flex-shrink: 0;
+  }
+  .toggle-switch.on { background: var(--green); }
+  .toggle-knob {
+    position: absolute; top: 3px; left: 3px;
+    width: 14px; height: 14px; background: white; border-radius: 50%;
+    transition: left 0.2s;
+  }
+  .toggle-switch.on .toggle-knob { left: 19px; }
+  .interval-select {
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--text); padding: 3px 8px; border-radius: 6px; font-size: 12px;
+    cursor: pointer;
+  }
+  .countdown-badge {
+    font-size: 12px; font-weight: 700; color: var(--accent);
+    background: rgba(61,90,254,0.12); border: 1px solid rgba(61,90,254,0.3);
+    padding: 3px 10px; border-radius: 20px; font-family: monospace;
+    min-width: 60px; text-align: center;
+  }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+    animation: blink 1s infinite; flex-shrink: 0;
+  }
+  .data-delay-note {
+    font-size: 10px; color: var(--muted); margin-left: auto;
+  }
+  @media(max-width:480px) { .data-delay-note { display: none; } }
+
+  /* ── FUTURE LINE TOGGLE ── */
+  .future-btn {
+    padding: 4px 10px; border-radius: 6px; border: 1px solid;
+    font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s;
+    background: transparent; border-color: rgba(255,214,0,0.4); color: #ffd600;
+  }
+  .future-btn.active {
+    background: rgba(255,214,0,0.12); border-color: #ffd600;
+  }
+  .proj-days-select {
+    background: var(--card2); border: 1px solid var(--border);
+    color: var(--text); padding: 3px 7px; border-radius: 6px; font-size: 11px;
+  }
+  .prognose-note {
+    font-size: 10px; color: var(--muted); font-style: italic;
+    padding: 5px 0 0 0; border-top: 1px dashed var(--border); margin-top: 8px;
+  }
+
+  /* ── INTRADAY BADGE ── */
+  .intraday-badge {
+    font-size: 10px; background: rgba(41,121,255,0.15);
+    border: 1px solid rgba(41,121,255,0.4); color: var(--blue);
+    padding: 2px 7px; border-radius: 10px; font-weight: 600;
+  }
+
+  /* ── MODE TOGGLE ── */
+  .mode-toggle-wrap {
+    display: flex; gap: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    flex-shrink: 0;
+  }
+  .mode-btn {
+    padding: 5px 12px; border: none; cursor: pointer; font-size: 12px; font-weight: 600;
+    background: transparent; color: var(--muted); transition: all 0.15s;
+  }
+  .mode-btn.active-live { background: #00e676; color: #000; }
+  .mode-btn.active-analyse { background: var(--accent); color: #fff; }
+
+  /* ── TRADINGVIEW CONTAINER ── */
+  .tv-container { border-radius: 10px; overflow: hidden; }
+  .tv-live-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--green); font-weight: 700;
+    background: var(--green-dim); border: 1px solid rgba(0,230,118,0.3);
+    padding: 3px 10px; border-radius: 20px;
+  }
+  .tv-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: blink 1s infinite; }
+</style>
+</head>
+<body>
+
+<!-- LOADING OVERLAY -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">Lade Marktdaten...</div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="modal-bg hidden" id="settingsModal">
+  <div class="modal">
+    <div class="modal-title">⚙️ Einstellungen</div>
+    <div class="modal-sub">
+      Optionaler Finnhub API-Key für bessere Nachrichten.<br>
+      Kostenlos unter <strong>finnhub.io</strong> → Free Plan.
+    </div>
+    <div class="form-group">
+      <label class="form-label">Finnhub API-Key (optional)</label>
+      <input class="form-input" type="text" id="finnhubKeyInput" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+      <div class="form-hint">Ohne Key: allgemeine Finanz-News. Mit Key: präzisere DAX-Nachrichten.</div>
+    </div>
+    <div class="modal-btns">
+      <button class="btn-secondary" onclick="closeSettings()">Abbrechen</button>
+      <button class="btn-primary" onclick="saveSettings()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-logo">
+    <span>📊</span>
+    <div>
+      <div class="header-title">DAX Analyse</div>
+      <div class="header-sub">Technische Marktanalyse</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="time-badge" id="updateTime">--:--</div>
+    <button class="settings-btn" onclick="openSettings()" title="Einstellungen">⚙️</button>
+    <button class="refresh-btn" id="refreshBtn" onclick="loadAll()">
+      <span id="refreshIcon">↻</span> Refresh
+    </button>
+  </div>
+</div>
+
+<!-- AUTO-REFRESH BAR -->
+<div class="refresh-bar">
+  <div class="refresh-bar-label">Auto-Refresh</div>
+  <div class="refresh-toggle" onclick="toggleAutoRefresh()">
+    <div class="toggle-switch" id="autoRefreshToggle">
+      <div class="toggle-knob"></div>
+    </div>
+    <span style="font-size:12px;color:var(--muted)" id="autoRefreshLabel">Aus</span>
+  </div>
+  <select class="interval-select" id="intervalSelect" onchange="updateInterval()">
+    <option value="10">10 Sek</option>
+    <option value="30" selected>30 Sek</option>
+    <option value="60">1 Min</option>
+    <option value="300">5 Min</option>
+  </select>
+  <div class="countdown-badge" id="countdownBadge" style="display:none">—</div>
+  <div class="live-dot" id="liveDot" style="display:none"></div>
+  <div class="data-delay-note">⚠ Kurse via Yahoo Finance können 15–20 Min verzögert sein · Finnhub-Key → Einstellungen</div>
+</div>
+
+<div class="main">
+
+  <!-- ERROR BANNER -->
+  <div class="error-banner" id="errorBanner">
+    ⚠️ Einige Daten konnten nicht geladen werden. Versuche es in einem Moment erneut.
+  </div>
+
+  <!-- INDEX HERO -->
+  <div class="index-hero">
+    <div>
+      <div class="index-name">DAX 40 • XETRA</div>
+      <div class="index-price" id="daxPrice">—</div>
+      <div class="index-change" id="daxChange">—</div>
+      <div class="market-status status-closed" id="marketStatus">
+        <div class="status-dot"></div>
+        <span id="marketStatusText">Markt geschlossen</span>
+      </div>
+    </div>
+    <div class="sentiment-box">
+      <div class="sentiment-label">TA-Signal Score</div>
+      <div class="sentiment-gauge">
+        <div class="sentiment-needle" id="sentimentNeedle" style="left:50%"></div>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:9px; color:var(--muted); margin-bottom:6px;">
+        <span>Sehr Bärisch</span><span>Neutral</span><span>Sehr Bullisch</span>
+      </div>
+      <div class="sentiment-score" id="sentimentScore">—</div>
+      <div class="sentiment-text" id="sentimentText">Berechne...</div>
+    </div>
+    <div class="index-meta">
+      <div class="meta-item"><div class="meta-val" id="dax52h">—</div><div class="meta-lbl">52W Hoch</div></div>
+      <div class="meta-item"><div class="meta-val" id="dax52l">—</div><div class="meta-lbl">52W Tief</div></div>
+      <div class="meta-item"><div class="meta-val" id="daxVol">—</div><div class="meta-lbl">Volumen</div></div>
+      <div class="meta-item"><div class="meta-val" id="daxRSI">—</div><div class="meta-lbl">RSI(14)</div></div>
+      <div class="meta-item"><div class="meta-val" id="daxMA50">—</div><div class="meta-lbl">MA50</div></div>
+      <div class="meta-item"><div class="meta-val" id="daxMA200">—</div><div class="meta-lbl">MA200</div></div>
+    </div>
+  </div>
+
+  <!-- MAIN CHART -->
+  <div class="chart-card">
+    <div class="chart-header">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div class="chart-title" id="chartTitle">DAX 40 — Kursverlauf</div>
+        <div class="mode-toggle-wrap">
+          <button class="mode-btn active-live" id="btnLive" onclick="setChartMode('live')">🔴 Live</button>
+          <button class="mode-btn" id="btnAnalyse" onclick="setChartMode('analyse')">📊 Analyse</button>
+        </div>
+        <div class="tv-live-badge" id="tvLiveBadge">
+          <div class="tv-live-dot"></div>XETRA Echtzeit
+        </div>
+      </div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:8px;">
+        <!-- Analyse-only controls -->
+        <div id="analyseControls" style="display:none;gap:6px;flex-wrap:wrap;align-items:center;">
+          <div class="chart-tabs">
+            <button class="chart-tab" onclick="changeRange('1d')" id="tab-1d">Heute</button>
+            <button class="chart-tab" onclick="changeRange('5d')" id="tab-5d">5T</button>
+            <button class="chart-tab" onclick="changeRange('1mo')" id="tab-1mo">1M</button>
+            <button class="chart-tab active" onclick="changeRange('3mo')" id="tab-3mo">3M</button>
+            <button class="chart-tab" onclick="changeRange('6mo')" id="tab-6mo">6M</button>
+            <button class="chart-tab" onclick="changeRange('1y')" id="tab-1y">1J</button>
+          </div>
+          <button class="future-btn" id="futureBtnEl" onclick="toggleFutureLine()">📈 Zukunftslinie</button>
+          <select class="proj-days-select" id="projDaysSelect" onchange="redrawChartWithFuture()">
+            <option value="5">5 Tage</option>
+            <option value="10" selected>10 Tage</option>
+            <option value="20">20 Tage</option>
+            <option value="30">1 Monat</option>
+          </select>
+          <span class="intraday-badge" id="intradayBadge" style="display:none">⚡ Intraday 1Min</span>
+        </div>
+        <!-- Live-only: TV interval -->
+        <div id="liveControls" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          <span style="font-size:11px;color:var(--muted)">Intervall:</span>
+          <div class="chart-tabs" id="tvIntervalTabs">
+            <button class="chart-tab" onclick="setTVInterval('1')">1Min</button>
+            <button class="chart-tab" onclick="setTVInterval('5')">5Min</button>
+            <button class="chart-tab" onclick="setTVInterval('15')">15Min</button>
+            <button class="chart-tab active" onclick="setTVInterval('D')">1T</button>
+            <button class="chart-tab" onclick="setTVInterval('W')">1W</button>
+          </div>
+        </div>
+        <select id="symbolSelect" onchange="changeSymbol()" style="background:var(--card2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:6px;font-size:12px;">
+          <option value="^GDAXI">DAX 40 Index</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- TradingView Live Chart -->
+    <div id="tvChartWrap" class="tv-container" style="height:420px;">
+      <div id="tv_chart_container" style="height:100%;"></div>
+    </div>
+
+    <!-- Analyse Chart (Chart.js) - hidden by default -->
+    <div id="analyseChartWrap" style="display:none;">
+      <div class="chart-wrap"><canvas id="mainChart"></canvas></div>
+      <div style="margin-top:10px;">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">RSI (14)</div>
+        <div class="chart-wrap-sm"><canvas id="rsiChart"></canvas></div>
+      </div>
+      <div class="indicator-row" id="indicatorRow">
+        <div class="indicator-pill pill-neut">RSI: —</div>
+      </div>
+      <div class="prognose-note" id="prognoseNote" style="display:none">
+        ⚠️ <strong>Zukunftslinie = statistische TA-Prognose</strong>, basierend auf linearer Regression der letzten 30 Kerzen.
+        Kein Versprechen, keine Anlageberatung. Märkte können jederzeit anders verlaufen.
+      </div>
+    </div>
+  </div>
+
+  <!-- COMMODITIES -->
+  <div class="section-title">🏅 Rohstoffe & Edelmetalle</div>
+  <div class="commodities-grid" id="commoditiesGrid">
+    <!-- filled by JS -->
+  </div>
+
+  <!-- DAX COMPANIES -->
+  <div class="table-card">
+    <div class="table-card-header">
+      <div class="chart-title">DAX 40 Unternehmen</div>
+      <div style="font-size:11px;color:var(--muted)">TA-Score: technisches Signal</div>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th onclick="sortTable('name')">Unternehmen ↕</th>
+            <th onclick="sortTable('price')">Kurs ↕</th>
+            <th onclick="sortTable('change')">Änd. % ↕</th>
+            <th>TA-Signal Score</th>
+            <th onclick="sortTable('mktcap')">Sektor</th>
+          </tr>
+        </thead>
+        <tbody id="companiesBody">
+          <tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted)">Lade Unternehmensdaten...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- NEWS -->
+  <div class="news-card">
+    <div class="news-header">
+      <div class="chart-title">🌍 Aktuelle Marktnachrichten</div>
+      <div style="font-size:11px;color:var(--muted)">DAX-relevante News</div>
+    </div>
+    <div class="news-list" id="newsList">
+      <div style="text-align:center;padding:24px;color:var(--muted)">Lade Nachrichten...</div>
+    </div>
+  </div>
+
+  <!-- DISCLAIMER -->
+  <div class="disclaimer">
+    ⚠️ <strong>Wichtiger Hinweis:</strong> Der TA-Signal Score basiert auf technischen Indikatoren (RSI, MA, Bollinger Bänder).
+    Er stellt keine Anlageberatung dar und ist keine Vorhersage zukünftiger Kursentwicklungen.
+    Alle Investitionsentscheidungen liegen in Ihrer eigenen Verantwortung. Kurse können verzögert sein.
+  </div>
+
+</div><!-- /main -->
+
+<script>
+// ═══════════════════════════════════════════
+//  CONFIGURATION
+// ═══════════════════════════════════════════
+const CORS_PROXIES = [
+  'https://api.allorigins.win/raw?url=',
+  'https://corsproxy.io/?',
+];
+
+let activeProxy = 0;
+let currentRange = '3mo';
+let currentSymbol = '^GDAXI';
+let currentSymbolName = 'DAX 40 Index';
+let mainChartInst = null;
+let rsiChartInst = null;
+let stockData = {}; // cache
+let sortCol = 'change';
+let sortDir = -1;
+
+// Auto-refresh state
+let autoRefreshActive = false;
+let autoRefreshTimer = null;
+let countdownTimer = null;
+let countdownSeconds = 30;
+let currentCloses = [];       // last loaded closes for chart
+let currentTimestamps = [];   // last loaded timestamps
+
+// Future line state
+let futureLineActive = false;
+
+const FINNHUB_KEY = () => localStorage.getItem('finnhub_key') || '';
+
+// ═══════════════════════════════════════════
+//  DAX 40 COMPANIES
+// ═══════════════════════════════════════════
+const DAX_COMPANIES = [
+  { name:'SAP',                  symbol:'SAP.DE',      sector:'Technologie' },
+  { name:'Siemens',              symbol:'SIE.DE',      sector:'Industrie'   },
+  { name:'Allianz',              symbol:'ALV.DE',      sector:'Finanzen'    },
+  { name:'Deutsche Telekom',     symbol:'DTE.DE',      sector:'Telekom'     },
+  { name:'Münchener Rück',       symbol:'MUV2.DE',     sector:'Finanzen'    },
+  { name:'Mercedes-Benz',        symbol:'MBG.DE',      sector:'Auto'        },
+  { name:'BMW',                  symbol:'BMW.DE',      sector:'Auto'        },
+  { name:'Siemens Energy',       symbol:'ENR.DE',      sector:'Energie'     },
+  { name:'Deutsche Bank',        symbol:'DBK.DE',      sector:'Finanzen'    },
+  { name:'BASF',                 symbol:'BAS.DE',      sector:'Chemie'      },
+  { name:'Infineon',             symbol:'IFX.DE',      sector:'Technologie' },
+  { name:'Bayer',                symbol:'BAYN.DE',     sector:'Gesundheit'  },
+  { name:'Volkswagen',           symbol:'VOW3.DE',     sector:'Auto'        },
+  { name:'DHL Group',            symbol:'DHL.DE',      sector:'Logistik'    },
+  { name:'RWE',                  symbol:'RWE.DE',      sector:'Energie'     },
+  { name:'E.ON',                 symbol:'EOAN.DE',     sector:'Energie'     },
+  { name:'Adidas',               symbol:'ADS.DE',      sector:'Konsumgüter' },
+  { name:'Merck KGaA',           symbol:'MRK.DE',      sector:'Gesundheit'  },
+  { name:'Deutsche Börse',       symbol:'DB1.DE',      sector:'Finanzen'    },
+  { name:'MTU Aero Engines',     symbol:'MTX.DE',      sector:'Industrie'   },
+  { name:'Hannover Rück',        symbol:'HNR1.DE',     sector:'Finanzen'    },
+  { name:'Commerzbank',          symbol:'CBK.DE',      sector:'Finanzen'    },
+  { name:'Continental',          symbol:'CON.DE',      sector:'Auto'        },
+  { name:'Daimler Truck',        symbol:'DTG.DE',      sector:'Industrie'   },
+  { name:'Fresenius',            symbol:'FRE.DE',      sector:'Gesundheit'  },
+  { name:'HeidelbergMaterials',  symbol:'HEIG.DE',     sector:'Baustoffe'   },
+  { name:'Henkel',               symbol:'HEN3.DE',     sector:'Konsumgüter' },
+  { name:'Porsche AG',           symbol:'P911.DE',     sector:'Auto'        },
+  { name:'Porsche SE',           symbol:'PAH3.DE',     sector:'Finanzen'    },
+  { name:'Qiagen',               symbol:'QIA.DE',      sector:'Gesundheit'  },
+  { name:'Sartorius',            symbol:'SRT3.DE',     sector:'Gesundheit'  },
+  { name:'Siemens Healthineers', symbol:'SHL.DE',      sector:'Gesundheit'  },
+  { name:'Symrise',              symbol:'SY1.DE',      sector:'Chemie'      },
+  { name:'Vonovia',              symbol:'VNA.DE',      sector:'Immobilien'  },
+  { name:'Zalando',              symbol:'ZAL.DE',      sector:'Konsumgüter' },
+  { name:'Covestro',             symbol:'1COV.DE',     sector:'Chemie'      },
+];
+
+const COMMODITIES = [
+  { name:'Gold',     symbol:'GC=F',  icon:'🥇', unit:'USD/oz' },
+  { name:'Silber',   symbol:'SI=F',  icon:'🥈', unit:'USD/oz' },
+  { name:'Brent Öl', symbol:'BZ=F',  icon:'🛢️', unit:'USD/bbl' },
+  { name:'WTI Öl',   symbol:'CL=F',  icon:'⛽', unit:'USD/bbl' },
+];
+
+// ═══════════════════════════════════════════
+//  TRADINGVIEW SYMBOL MAP
+// ═══════════════════════════════════════════
+const TV_SYMBOLS = {
+  '^GDAXI':  'XETRA:DAX',
+  'SAP.DE':  'XETRA:SAP',  'SIE.DE':  'XETRA:SIE',
+  'ALV.DE':  'XETRA:ALV',  'DTE.DE':  'XETRA:DTE',
+  'MUV2.DE': 'XETRA:MUV2', 'MBG.DE':  'XETRA:MBG',
+  'BMW.DE':  'XETRA:BMW',  'ENR.DE':  'XETRA:ENR',
+  'DBK.DE':  'XETRA:DBK',  'BAS.DE':  'XETRA:BAS',
+  'IFX.DE':  'XETRA:IFX',  'BAYN.DE': 'XETRA:BAYN',
+  'VOW3.DE': 'XETRA:VOW3', 'DHL.DE':  'XETRA:DHL',
+  'RWE.DE':  'XETRA:RWE',  'EOAN.DE': 'XETRA:EOAN',
+  'ADS.DE':  'XETRA:ADS',  'MRK.DE':  'XETRA:MRK',
+  'DB1.DE':  'XETRA:DB1',  'MTX.DE':  'XETRA:MTX',
+  'HNR1.DE': 'XETRA:HNR1', 'CBK.DE':  'XETRA:CBK',
+  'CON.DE':  'XETRA:CON',  'DTG.DE':  'XETRA:DTG',
+  'FRE.DE':  'XETRA:FRE',  'HEIG.DE': 'XETRA:HEIG',
+  'HEN3.DE': 'XETRA:HEN3', 'P911.DE': 'XETRA:P911',
+  'PAH3.DE': 'XETRA:PAH3', 'QIA.DE':  'XETRA:QIA',
+  'SRT3.DE': 'XETRA:SRT3', 'SHL.DE':  'XETRA:SHL',
+  'SY1.DE':  'XETRA:SY1',  'VNA.DE':  'XETRA:VNA',
+  'ZAL.DE':  'XETRA:ZAL',  '1COV.DE': 'XETRA:1COV',
+  // Commodities
+  'GC=F':   'OANDA:XAUUSD',
+  'SI=F':   'OANDA:XAGUSD',
+  'BZ=F':   'TVC:UKOIL',
+  'CL=F':   'TVC:USOIL',
+};
+
+// ═══════════════════════════════════════════
+//  CHART MODE & TRADINGVIEW
+// ═══════════════════════════════════════════
+let chartMode = 'live'; // 'live' | 'analyse'
+let tvWidget = null;
+let currentTVInterval = 'D';
+
+function toTVSymbol(yahooSym) {
+  return TV_SYMBOLS[yahooSym] || ('XETRA:' + yahooSym.replace('.DE',''));
+}
+
+function createTVWidget(symbol, interval) {
+  const tvSym = toTVSymbol(symbol);
+  const container = document.getElementById('tv_chart_container');
+  container.innerHTML = ''; // clear
+
+  if (typeof TradingView === 'undefined') {
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px;">TradingView wird geladen...</div>';
+    setTimeout(() => createTVWidget(symbol, interval), 1000);
+    return;
+  }
+
+  tvWidget = new TradingView.widget({
+    container_id: 'tv_chart_container',
+    width: '100%',
+    height: 420,
+    symbol: tvSym,
+    interval: interval || currentTVInterval,
+    timezone: 'Europe/Berlin',
+    theme: 'dark',
+    style: '1', // candlestick
+    locale: 'de_DE',
+    toolbar_bg: '#141928',
+    enable_publishing: false,
+    withdateranges: true,
+    hide_side_toolbar: false,
+    allow_symbol_change: true,
+    save_image: false,
+    studies: [
+      'RSI@tv-basicstudies',
+      'BB@tv-basicstudies',
+      'MASimple@tv-basicstudies',
+    ],
+    overrides: {
+      'paneProperties.background': '#0b0f1a',
+      'paneProperties.backgroundType': 'solid',
+      'paneProperties.vertGridProperties.color': 'rgba(37,45,71,0.4)',
+      'paneProperties.horzGridProperties.color': 'rgba(37,45,71,0.4)',
+      'scalesProperties.textColor': '#7a8aaa',
+    },
+  });
+}
+
+function setTVInterval(interval) {
+  currentTVInterval = interval;
+  document.querySelectorAll('#tvIntervalTabs .chart-tab').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  createTVWidget(currentSymbol, interval);
+}
+
+function setChartMode(mode) {
+  chartMode = mode;
+  const tvWrap = document.getElementById('tvChartWrap');
+  const analyseWrap = document.getElementById('analyseChartWrap');
+  const analyseControls = document.getElementById('analyseControls');
+  const liveControls = document.getElementById('liveControls');
+  const tvBadge = document.getElementById('tvLiveBadge');
+  const btnLive = document.getElementById('btnLive');
+  const btnAnalyse = document.getElementById('btnAnalyse');
+
+  if (mode === 'live') {
+    tvWrap.style.display = 'block';
+    analyseWrap.style.display = 'none';
+    analyseControls.style.display = 'none';
+    liveControls.style.display = 'flex';
+    tvBadge.style.display = 'inline-flex';
+    btnLive.classList.add('active-live');
+    btnLive.classList.remove('mode-btn');
+    btnAnalyse.classList.remove('active-analyse');
+    btnAnalyse.style.color = '';
+    createTVWidget(currentSymbol, currentTVInterval);
+  } else {
+    tvWrap.style.display = 'none';
+    analyseWrap.style.display = 'block';
+    analyseControls.style.display = 'flex';
+    liveControls.style.display = 'none';
+    tvBadge.style.display = 'none';
+    btnLive.classList.remove('active-live');
+    btnAnalyse.classList.add('active-analyse');
+    // Load analyse chart
+    loadChart(currentSymbol, currentSymbolName, currentRange, true);
+  }
+}
+
+// Populate symbol select
+DAX_COMPANIES.forEach(c => {
+  const opt = document.createElement('option');
+  opt.value = c.symbol;
+  opt.textContent = c.name;
+  document.getElementById('symbolSelect').appendChild(opt);
+});
+COMMODITIES.forEach(c => {
+  const opt = document.createElement('option');
+  opt.value = c.symbol;
+  opt.textContent = c.name + ' (' + c.unit + ')';
+  document.getElementById('symbolSelect').appendChild(opt);
+});
+
+// ═══════════════════════════════════════════
+//  FETCH WITH PROXY FALLBACK
+// ═══════════════════════════════════════════
+async function fetchProxy(url) {
+  for (let i = 0; i < CORS_PROXIES.length; i++) {
+    const proxyIdx = (activeProxy + i) % CORS_PROXIES.length;
+    try {
+      const proxyUrl = CORS_PROXIES[proxyIdx] + encodeURIComponent(url);
+      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const text = await res.text();
+      activeProxy = proxyIdx;
+      return JSON.parse(text);
+    } catch(e) { /* try next */ }
+  }
+  // last attempt: direct (may work on desktop)
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    return await res.json();
+  } catch(e) {
+    throw new Error('Alle Proxy-Versuche fehlgeschlagen');
+  }
+}
+
+// ═══════════════════════════════════════════
+//  YAHOO FINANCE FETCH
+// ═══════════════════════════════════════════
+function rangeToInterval(range) {
+  if (range === '1d') return '1m';
+  if (range === '5d') return '5m';
+  if (range === '1mo') return '1h';
+  return '1d';
+}
+
+async function fetchYahoo(symbol, range='6mo', forceRefresh=false) {
+  const cacheKey = symbol + range;
+  if (!forceRefresh && stockData[cacheKey]) return stockData[cacheKey];
+  const interval = rangeToInterval(range);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}&includePrePost=false`;
+  const data = await fetchProxy(url);
+  const result = data?.chart?.result?.[0];
+  if (!result) throw new Error('Keine Daten für ' + symbol);
+  stockData[cacheKey] = result;
+  return result;
+}
+
+async function fetchQuote(symbol) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+  const data = await fetchProxy(url);
+  return data?.chart?.result?.[0];
+}
+
+// Quick refresh: only reload price data, not full companies
+async function quickRefresh() {
+  try {
+    await loadDAXQuote(); // always refresh the hero price
+    if (chartMode === 'analyse') {
+      delete stockData[currentSymbol + currentRange];
+      await loadChart(currentSymbol, currentSymbolName, currentRange, true);
+    }
+    // In live mode: TradingView updates itself in real-time — nothing to do
+    updateClock();
+  } catch(e) { /* silent */ }
+}
+
+// ═══════════════════════════════════════════
+//  TECHNICAL INDICATORS
+// ═══════════════════════════════════════════
+function calcRSI(closes, period = 14) {
+  if (closes.length < period + 1) return Array(closes.length).fill(50);
+  const rsi = Array(period).fill(null);
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff > 0) avgGain += diff; else avgLoss += Math.abs(diff);
+  }
+  avgGain /= period; avgLoss /= period;
+  rsi.push(avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss));
+  for (let i = period + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    const gain = diff > 0 ? diff : 0;
+    const loss = diff < 0 ? Math.abs(diff) : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+    rsi.push(avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss));
+  }
+  return rsi;
+}
+
+function calcSMA(data, period) {
+  return data.map((_, i) => {
+    if (i < period - 1) return null;
+    return data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0) / period;
+  });
+}
+
+function calcEMA(data, period) {
+  const k = 2 / (period + 1);
+  const ema = [data[0]];
+  for (let i = 1; i < data.length; i++) {
+    ema.push(data[i] * k + ema[i - 1] * (1 - k));
+  }
+  return ema;
+}
+
+function calcBollinger(closes, period = 20, std = 2) {
+  const mid = calcSMA(closes, period);
+  const upper = [], lower = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (i < period - 1) { upper.push(null); lower.push(null); continue; }
+    const slice = closes.slice(i - period + 1, i + 1);
+    const mean = mid[i];
+    const variance = slice.reduce((s, v) => s + (v - mean) ** 2, 0) / period;
+    const sd = Math.sqrt(variance);
+    upper.push(mean + std * sd);
+    lower.push(mean - std * sd);
+  }
+  return { mid, upper, lower };
+}
+
+// ═══════════════════════════════════════════
+//  FUTURE LINE / PROGNOSE
+// ═══════════════════════════════════════════
+function linearRegression(y) {
+  const n = y.length;
+  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+  for (let i = 0; i < n; i++) {
+    sumX += i; sumY += y[i]; sumXY += i * y[i]; sumXX += i * i;
+  }
+  const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+  const intercept = (sumY - slope * sumX) / n;
+  return { slope, intercept };
+}
+
+function projectFuture(closes, projDays) {
+  const sample = closes.slice(-Math.min(30, closes.length));
+  const { slope, intercept } = linearRegression(sample);
+  const n = sample.length;
+
+  // Residuals for confidence band
+  const residuals = sample.map((v, i) => v - (intercept + slope * i));
+  const stdDev = Math.sqrt(residuals.reduce((s, r) => s + r * r, 0) / residuals.length);
+
+  // Last real timestamp (or approximate)
+  const future = [], futureUpper = [], futureLower = [], futureLabels = [];
+  const lastClose = closes[closes.length - 1];
+
+  // Anchor: the last real point (null = gap between real and projected)
+  const anchor = lastClose;
+
+  for (let i = 1; i <= projDays; i++) {
+    const projected = intercept + slope * (n - 1 + i);
+    // Scale so projection always starts exactly at last real close
+    const drift = projected - (intercept + slope * (n - 1));
+    const val = anchor + drift;
+    future.push(Math.round(val * 100) / 100);
+    futureUpper.push(Math.round((val + 1.5 * stdDev) * 100) / 100);
+    futureLower.push(Math.round((val - 1.5 * stdDev) * 100) / 100);
+    futureLabels.push(`+${i}T Prognose`);
+  }
+
+  const direction = slope >= 0 ? '↑ Aufwärts' : '↓ Abwärts';
+  const strength = Math.abs(slope / stdDev);
+  const confidence = Math.min(95, Math.round(40 + strength * 20));
+
+  return { future, futureUpper, futureLower, futureLabels, slope, stdDev, direction, confidence };
+}
+
+function calcTAScore(closes) {
+  if (!closes || closes.length < 30) return 50;
+  const last = closes[closes.length - 1];
+  let score = 0;
+  let total = 0;
+
+  // RSI
+  const rsiArr = calcRSI(closes, 14);
+  const rsi = rsiArr[rsiArr.length - 1];
+  if (rsi !== null) {
+    total += 30;
+    if (rsi < 30)      score += 30;
+    else if (rsi < 40) score += 20;
+    else if (rsi < 50) score += 15;
+    else if (rsi < 60) score += 15;
+    else if (rsi < 70) score += 8;
+    else               score += 0;
+  }
+
+  // MA 20
+  const ma20 = calcSMA(closes, 20);
+  const lastMA20 = ma20[ma20.length - 1];
+  if (lastMA20) {
+    total += 15;
+    if (last > lastMA20) score += 15;
+  }
+
+  // MA 50
+  if (closes.length >= 50) {
+    const ma50 = calcSMA(closes, 50);
+    const lastMA50 = ma50[ma50.length - 1];
+    if (lastMA50) {
+      total += 20;
+      if (last > lastMA50) score += 20;
+    }
+  }
+
+  // MA 200
+  if (closes.length >= 200) {
+    const ma200 = calcSMA(closes, 200);
+    const lastMA200 = ma200[ma200.length - 1];
+    if (lastMA200) {
+      total += 20;
+      if (last > lastMA200) score += 20;
+    }
+  }
+
+  // Bollinger
+  if (closes.length >= 20) {
+    const bb = calcBollinger(closes);
+    const upLast = bb.upper[bb.upper.length - 1];
+    const loLast = bb.lower[bb.lower.length - 1];
+    if (upLast && loLast) {
+      total += 15;
+      const range = upLast - loLast;
+      const pos = (last - loLast) / range; // 0=lower band, 1=upper band
+      // oversold near lower band = bullish
+      if (pos < 0.2) score += 15;
+      else if (pos < 0.4) score += 10;
+      else if (pos < 0.6) score += 8;
+      else if (pos < 0.8) score += 4;
+      else score += 0;
+    }
+  }
+
+  // Momentum: last 5 days trend
+  if (closes.length >= 5) {
+    total += 10;
+    const trend = closes[closes.length - 1] - closes[closes.length - 5];
+    if (trend > 0) score += 10;
+  }
+
+  return total > 0 ? Math.round((score / total) * 100) : 50;
+}
+
+function taScoreToSignal(score) {
+  if (score >= 70) return { label: 'Stark Bullisch', cls: 'pos', color: '#00e676' };
+  if (score >= 57) return { label: 'Bullisch', cls: 'pos', color: '#66bb6a' };
+  if (score >= 43) return { label: 'Neutral', cls: 'neutral', color: '#7a8aaa' };
+  if (score >= 30) return { label: 'Bärisch', cls: 'neg', color: '#ef5350' };
+  return { label: 'Stark Bärisch', cls: 'neg', color: '#ff1744' };
+}
+
+// ═══════════════════════════════════════════
+//  CHARTS
+// ═══════════════════════════════════════════
+function renderMainChart(timestamps, closes, name, isIntraday) {
+  const labels = timestamps.map(t => {
+    const d = new Date(t * 1000);
+    if (isIntraday) return d.toLocaleTimeString('de-DE', { hour:'2-digit', minute:'2-digit' });
+    return d.toLocaleDateString('de-DE', { day:'2-digit', month:'short' });
+  });
+
+  const ma20  = calcSMA(closes, Math.min(20, Math.floor(closes.length / 2)));
+  const ma50  = calcSMA(closes, Math.min(50, closes.length));
+  const bb    = calcBollinger(closes, Math.min(20, Math.floor(closes.length / 2)), 2);
+
+  // Future line datasets
+  const projDays = parseInt(document.getElementById('projDaysSelect').value) || 10;
+  const proj = projectFuture(closes, projDays);
+
+  // Pad historical datasets with null for future slots, and future with null for historical slots
+  const totalLen = closes.length + projDays;
+  const histPad  = Array(projDays).fill(null);
+  const prevPad  = Array(closes.length - 1).fill(null);
+
+  // The future starts at the last close (anchor)
+  const futureData    = [...prevPad, closes[closes.length - 1], ...proj.future];
+  const futureUpper   = [...prevPad, closes[closes.length - 1], ...proj.futureUpper];
+  const futureLower   = [...prevPad, closes[closes.length - 1], ...proj.futureLower];
+
+  // Generate future labels
+  const futureLabels = proj.futureLabels.map((_, i) => {
+    if (isIntraday) return `+${i+1}Min`;
+    const d = new Date();
+    d.setDate(d.getDate() + i + 1);
+    // skip weekends
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+    return d.toLocaleDateString('de-DE', { day:'2-digit', month:'short' });
+  });
+
+  const allLabels = [...labels, ...futureLabels];
+
+  const histCloses   = [...closes, ...Array(projDays).fill(null)];
+  const histMA20     = [...ma20, ...Array(projDays).fill(null)];
+  const histMA50     = [...ma50, ...Array(projDays).fill(null)];
+  const histBBU      = [...bb.upper, ...Array(projDays).fill(null)];
+  const histBBL      = [...bb.lower, ...Array(projDays).fill(null)];
+
+  const futureDatasets = futureLineActive ? [
+    {
+      label: `Prognose ${proj.direction} (${proj.confidence}% Konfidenz)`,
+      data: futureData,
+      borderColor: '#ffd600',
+      borderWidth: 2,
+      borderDash: [6, 4],
+      pointRadius: 0,
+      tension: 0.3,
+      fill: false,
+      order: 0,
+    },
+    {
+      label: 'Prognose Oberkante',
+      data: futureUpper,
+      borderColor: 'rgba(255,214,0,0.25)',
+      borderWidth: 1,
+      pointRadius: 0,
+      tension: 0.3,
+      fill: false,
+      order: 0,
+    },
+    {
+      label: 'Prognose Unterkante',
+      data: futureLower,
+      borderColor: 'rgba(255,214,0,0.25)',
+      borderWidth: 1,
+      pointRadius: 0,
+      tension: 0.3,
+      fill: '-1',
+      backgroundColor: 'rgba(255,214,0,0.06)',
+      order: 0,
+    },
+  ] : [];
+
+  const cfg = {
+    type: 'line',
+    data: {
+      labels: allLabels,
+      datasets: [
+        {
+          label: name,
+          data: histCloses,
+          borderColor: '#2979ff',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.2,
+          fill: true,
+          backgroundColor: (ctx) => {
+            const gradient = ctx.chart.ctx.createLinearGradient(0,0,0,200);
+            gradient.addColorStop(0,'rgba(41,121,255,0.2)');
+            gradient.addColorStop(1,'rgba(41,121,255,0)');
+            return gradient;
+          },
+          order: 1,
+        },
+        {
+          label: 'MA20',
+          data: histMA20,
+          borderColor: '#ffd600',
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.2,
+          fill: false,
+          borderDash: [4,4],
+          order: 2,
+        },
+        {
+          label: 'MA50',
+          data: histMA50,
+          borderColor: '#ff9100',
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.2,
+          fill: false,
+          order: 3,
+        },
+        {
+          label: 'BB Oben',
+          data: histBBU,
+          borderColor: 'rgba(153,102,255,0.4)',
+          borderWidth: 1,
+          pointRadius: 0,
+          tension: 0.2,
+          fill: false,
+          order: 4,
+        },
+        {
+          label: 'BB Unten',
+          data: histBBL,
+          borderColor: 'rgba(153,102,255,0.4)',
+          borderWidth: 1,
+          pointRadius: 0,
+          tension: 0.2,
+          fill: '-1',
+          backgroundColor: 'rgba(153,102,255,0.05)',
+          order: 5,
+        },
+        ...futureDatasets,
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: {
+          labels: { color: '#7a8aaa', font: { size: 10 }, boxWidth: 20, usePointStyle: true,
+            filter: (item) => !item.text.includes('kante') // hide upper/lower band from legend
+          }
+        },
+        tooltip: {
+          backgroundColor: '#141928',
+          borderColor: '#252d47',
+          borderWidth: 1,
+          titleColor: '#e2e8f0',
+          bodyColor: '#7a8aaa',
+          callbacks: {
+            label: (ctx) => {
+              const v = ctx.raw;
+              if (v === null || v === undefined) return null;
+              return ` ${ctx.dataset.label}: ${v.toLocaleString('de-DE', {minimumFractionDigits:2,maximumFractionDigits:2})}`;
+            }
+          }
+        },
+        // Vertical separator at end of real data
+        annotation: undefined,
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(37,45,71,0.5)' },
+          ticks: { color: '#7a8aaa', maxTicksLimit: isIntraday ? 10 : 8, font: { size: 10 } }
+        },
+        y: {
+          position: 'right',
+          grid: { color: 'rgba(37,45,71,0.5)' },
+          ticks: { color: '#7a8aaa', font: { size: 10 },
+            callback: v => v.toLocaleString('de-DE', { maximumFractionDigits: 0 })
+          }
+        }
+      }
+    }
+  };
+
+  if (mainChartInst) mainChartInst.destroy();
+  mainChartInst = new Chart(document.getElementById('mainChart'), cfg);
+
+  // Update prognose info
+  if (futureLineActive) {
+    const dirColor = proj.slope >= 0 ? 'var(--green)' : 'var(--red)';
+    document.getElementById('prognoseNote').style.display = 'block';
+    document.getElementById('prognoseNote').innerHTML =
+      `⚠️ <strong>Zukunftslinie:</strong> Lineare Regression der letzten 30 Kerzen → <span style="color:${dirColor};font-weight:700">${proj.direction}</span> · Konfidenz: <strong>${proj.confidence}%</strong> · Konfidenzband: ±1,5σ · <em>Keine Anlageberatung.</em>`;
+  } else {
+    document.getElementById('prognoseNote').style.display = 'none';
+  }
+}
+
+function redrawChartWithFuture() {
+  if (currentCloses.length > 0 && currentTimestamps.length > 0) {
+    const isIntraday = currentRange === '1d' || currentRange === '5d';
+    renderMainChart(currentTimestamps, currentCloses, currentSymbolName, isIntraday);
+  }
+}
+
+function toggleFutureLine() {
+  futureLineActive = !futureLineActive;
+  const btn = document.getElementById('futureBtnEl');
+  btn.classList.toggle('active', futureLineActive);
+  redrawChartWithFuture();
+}
+
+function renderRSIChart(timestamps, closes) {
+  const labels = timestamps.map(t => {
+    const d = new Date(t * 1000);
+    return d.toLocaleDateString('de-DE', { day:'2-digit', month:'short' });
+  });
+  const rsi = calcRSI(closes, 14);
+
+  if (rsiChartInst) rsiChartInst.destroy();
+  rsiChartInst = new Chart(document.getElementById('rsiChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'RSI(14)',
+        data: rsi,
+        borderColor: '#e040fb',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.2,
+        fill: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: {
+        backgroundColor: '#141928', borderColor: '#252d47', borderWidth: 1,
+        titleColor: '#e2e8f0', bodyColor: '#7a8aaa',
+      }},
+      scales: {
+        x: { display: false },
+        y: {
+          min: 0, max: 100,
+          position: 'right',
+          grid: { color: 'rgba(37,45,71,0.5)' },
+          ticks: { color: '#7a8aaa', font: { size: 9 }, stepSize: 30 },
+        }
+      }
+    }
+  });
+}
+
+function updateIndicatorRow(closes) {
+  const rsiArr = calcRSI(closes, 14);
+  const rsi = rsiArr[rsiArr.length - 1];
+  const ma20 = calcSMA(closes, 20); const lMA20 = ma20[ma20.length-1];
+  const ma50 = calcSMA(closes, 50); const lMA50 = ma50[ma50.length-1];
+  const bb = calcBollinger(closes);
+  const upper = bb.upper[bb.upper.length-1];
+  const lower = bb.lower[bb.lower.length-1];
+  const last = closes[closes.length-1];
+  const row = document.getElementById('indicatorRow');
+
+  const pills = [];
+  // RSI
+  let rsiCls = rsi < 40 ? 'bull' : rsi > 60 ? 'bear' : 'neut';
+  pills.push(`<div class="indicator-pill pill-${rsiCls}">RSI: ${rsi?.toFixed(1)} ${rsi < 30 ? '⚡ Überverkauft' : rsi > 70 ? '⚡ Überkauft' : ''}</div>`);
+  // MA20
+  if (lMA20) pills.push(`<div class="indicator-pill pill-${last>lMA20?'bull':'bear'}">MA20: ${lMA20.toLocaleString('de-DE',{maximumFractionDigits:0})} ${last>lMA20?'↑':'↓'}</div>`);
+  // MA50
+  if (lMA50) pills.push(`<div class="indicator-pill pill-${last>lMA50?'bull':'bear'}">MA50: ${lMA50.toLocaleString('de-DE',{maximumFractionDigits:0})} ${last>lMA50?'↑':'↓'}</div>`);
+  // BB
+  if (upper && lower) {
+    const pos = ((last - lower)/(upper - lower)*100).toFixed(0);
+    const bbCls = pos < 20 ? 'bull' : pos > 80 ? 'bear' : 'neut';
+    pills.push(`<div class="indicator-pill pill-${bbCls}">BB: ${pos}% (${pos < 20 ? 'nahe Unterkante' : pos > 80 ? 'nahe Oberkante' : 'mittig'})</div>`);
+  }
+  row.innerHTML = pills.join('');
+}
+
+// ═══════════════════════════════════════════
+//  LOAD MAIN CHART
+// ═══════════════════════════════════════════
+async function loadChart(symbol, name, range, forceRefresh=false) {
+  document.getElementById('chartTitle').textContent = `${name} — Kursverlauf`;
+  const isIntraday = range === '1d' || range === '5d';
+  document.getElementById('intradayBadge').style.display = isIntraday ? 'inline-block' : 'none';
+
+  try {
+    const result = await fetchYahoo(symbol, range, forceRefresh);
+    const timestamps = result.timestamp;
+    const rawCloses = result.indicators?.quote?.[0]?.close || [];
+    // Filter out nulls but keep paired with timestamps
+    const pairs = timestamps.map((t, i) => ({ t, c: rawCloses[i] })).filter(p => p.c !== null && p.c !== undefined);
+    const validTimestamps = pairs.map(p => p.t);
+    const closes = pairs.map(p => Math.round(p.c * 100) / 100);
+
+    if (closes.length === 0) throw new Error('Keine Schlusskurse');
+
+    // Store globally for future line redraws
+    currentCloses = closes;
+    currentTimestamps = validTimestamps;
+
+    renderMainChart(validTimestamps, closes, name, isIntraday);
+    renderRSIChart(validTimestamps, closes);
+    updateIndicatorRow(closes);
+
+    // Update DAX meta if main symbol
+    if (symbol === '^GDAXI') {
+      const rsiArr = calcRSI(closes, 14);
+      const rsi = rsiArr[rsiArr.length - 1];
+
+      // For intraday: MA/200 needs longer data; use cached if available
+      if (!isIntraday) {
+        const ma50 = calcSMA(closes, Math.min(50, closes.length));
+        const ma200 = calcSMA(closes, Math.min(200, closes.length));
+        const lMA50 = ma50[ma50.length-1];
+        const lMA200 = ma200[ma200.length-1];
+        safeSet('daxRSI', rsi ? rsi.toFixed(1) : '—', rsi < 40 ? 'pos' : rsi > 60 ? 'neg' : 'neutral');
+        safeSet('daxMA50', lMA50 ? lMA50.toLocaleString('de-DE',{maximumFractionDigits:0}) : '—', closes[closes.length-1] > lMA50 ? 'pos' : 'neg');
+        safeSet('daxMA200', lMA200 ? lMA200.toLocaleString('de-DE',{maximumFractionDigits:0}) : '—', closes[closes.length-1] > lMA200 ? 'pos' : 'neg');
+      } else {
+        safeSet('daxRSI', rsi ? rsi.toFixed(1) : '—', rsi < 40 ? 'pos' : rsi > 60 ? 'neg' : 'neutral');
+      }
+
+      const score = calcTAScore(closes);
+      const sig = taScoreToSignal(score);
+      document.getElementById('sentimentScore').textContent = score + '%';
+      document.getElementById('sentimentScore').style.color = sig.color;
+      document.getElementById('sentimentText').textContent = sig.label;
+      document.getElementById('sentimentNeedle').style.left = score + '%';
+    }
+  } catch(e) {
+    console.warn('Chart load error:', e);
+  }
+}
+
+// ═══════════════════════════════════════════
+//  LOAD DAX INDEX QUOTE
+// ═══════════════════════════════════════════
+async function loadDAXQuote() {
+  try {
+    const result = await fetchQuote('^GDAXI');
+    if (!result) return;
+    const meta = result.meta;
+    const price = meta.regularMarketPrice;
+    const prev = meta.chartPreviousClose;
+    const change = price - prev;
+    const changePct = (change / prev) * 100;
+    const isPos = change >= 0;
+
+    document.getElementById('daxPrice').textContent =
+      price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const changeEl = document.getElementById('daxChange');
+    changeEl.textContent = `${isPos ? '+' : ''}${change.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})} (${isPos?'+':''}${changePct.toFixed(2)}%)`;
+    changeEl.className = 'index-change ' + (isPos ? 'pos' : 'neg');
+
+    if (meta.fiftyTwoWeekHigh) safeSet('dax52h', meta.fiftyTwoWeekHigh.toLocaleString('de-DE',{maximumFractionDigits:0}));
+    if (meta.fiftyTwoWeekLow)  safeSet('dax52l', meta.fiftyTwoWeekLow.toLocaleString('de-DE',{maximumFractionDigits:0}));
+
+    // Volume from quote
+    const quotes = result.indicators?.quote?.[0];
+    if (quotes?.volume) {
+      const vol = quotes.volume[quotes.volume.length - 1];
+      if (vol) safeSet('daxVol', formatVolume(vol));
+    }
+
+    // Market status
+    const now = new Date();
+    const hour = now.getUTCHours() + 1; // CET rough
+    const isWeekday = now.getUTCDay() > 0 && now.getUTCDay() < 6;
+    const isOpen = isWeekday && hour >= 9 && hour < 18;
+    const statusEl = document.getElementById('marketStatus');
+    statusEl.className = 'market-status ' + (isOpen ? 'status-open' : 'status-closed');
+    document.getElementById('marketStatusText').textContent = isOpen ? 'Markt geöffnet' : 'Markt geschlossen';
+
+  } catch(e) { console.warn('DAX quote error:', e); }
+}
+
+// ═══════════════════════════════════════════
+//  LOAD COMPANIES
+// ═══════════════════════════════════════════
+async function loadCompanies() {
+  const tbody = document.getElementById('companiesBody');
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted)">Lade ' + DAX_COMPANIES.length + ' Unternehmen...</td></tr>';
+
+  const results = [];
+
+  // Load all in parallel batches of 8 to avoid overwhelming proxies
+  const batchSize = 8;
+  for (let i = 0; i < DAX_COMPANIES.length; i += batchSize) {
+    const batch = DAX_COMPANIES.slice(i, i + batchSize);
+    const batchResults = await Promise.allSettled(batch.map(async c => {
+      try {
+        const r = await fetchYahoo(c.symbol, '1y');
+        const quotes = r.indicators?.quote?.[0];
+        const closes = quotes?.close?.filter(v => v !== null && v !== undefined);
+        if (!closes || closes.length < 2) return null;
+        const meta = r.meta;
+        const price = meta.regularMarketPrice || closes[closes.length-1];
+        const prev = meta.chartPreviousClose || closes[closes.length-2];
+        const change = price - prev;
+        const changePct = (change / prev) * 100;
+        const score = calcTAScore(closes);
+        return {
+          name: c.name,
+          symbol: c.symbol,
+          sector: c.sector,
+          price,
+          change,
+          changePct,
+          score,
+          closes,
+        };
+      } catch(e) { return null; }
+    }));
+    batchResults.forEach((r, idx) => {
+      if (r.status === 'fulfilled' && r.value) results.push(r.value);
+    });
+  }
+
+  // Sort
+  results.sort((a, b) => {
+    if (sortCol === 'name') return sortDir * a.name.localeCompare(b.name);
+    if (sortCol === 'price') return sortDir * (a.price - b.price);
+    if (sortCol === 'change') return sortDir * (a.changePct - b.changePct);
+    if (sortCol === 'score') return sortDir * (a.score - b.score);
+    return 0;
+  });
+
+  renderCompaniesTable(results);
+
+  // Calculate overall market sentiment from companies
+  if (results.length > 0) {
+    const avgScore = results.reduce((s, r) => s + r.score, 0) / results.length;
+    const sig = taScoreToSignal(Math.round(avgScore));
+    // Update sentiment if DAX score not yet set
+    if (document.getElementById('sentimentScore').textContent === '—') {
+      document.getElementById('sentimentScore').textContent = Math.round(avgScore) + '%';
+      document.getElementById('sentimentScore').style.color = sig.color;
+      document.getElementById('sentimentText').textContent = sig.label;
+      document.getElementById('sentimentNeedle').style.left = Math.round(avgScore) + '%';
+    }
+  }
+}
+
+function renderCompaniesTable(rows) {
+  const tbody = document.getElementById('companiesBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted)">Keine Daten verfügbar</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const isPos = r.changePct >= 0;
+    const sig = taScoreToSignal(r.score);
+    const barColor = r.score >= 57 ? 'var(--green)' : r.score >= 43 ? 'var(--yellow)' : 'var(--red)';
+    return `<tr onclick="selectCompany('${r.symbol}','${r.name}')" style="cursor:pointer">
+      <td>
+        <div class="company-name">${r.name}</div>
+        <div class="company-sector">${r.symbol}</div>
+      </td>
+      <td class="price-cell">${r.price.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})} €</td>
+      <td>
+        <span class="change-badge" style="background:${isPos ? 'var(--green-dim)' : 'var(--red-dim)'};color:${isPos ? 'var(--green)' : 'var(--red)'}">
+          ${isPos?'+':''}${r.changePct.toFixed(2)}%
+        </span>
+      </td>
+      <td class="ta-score-cell">
+        <div class="ta-bar-wrap">
+          <div class="ta-bar">
+            <div class="ta-bar-fill" style="width:${r.score}%;background:${barColor}"></div>
+          </div>
+          <div class="ta-pct" style="color:${barColor}">${r.score}%</div>
+        </div>
+        <div class="ta-signal" style="color:${sig.color}">${sig.label}</div>
+      </td>
+      <td style="color:var(--muted)">${r.sector}</td>
+    </tr>`;
+  }).join('');
+}
+
+let companiesCache = [];
+function sortTable(col) {
+  if (sortCol === col) sortDir *= -1;
+  else { sortCol = col; sortDir = -1; }
+  // Re-render from cache if available
+  const rows = Array.from(document.querySelectorAll('#companiesBody tr')).map(tr => {
+    const cells = tr.querySelectorAll('td');
+    if (cells.length < 4) return null;
+    return true; // just trigger reload
+  });
+  loadCompanies(); // simple: just reload
+}
+
+function selectCompany(symbol, name) {
+  currentSymbol = symbol;
+  currentSymbolName = name;
+  document.getElementById('symbolSelect').value = symbol;
+  document.getElementById('chartTitle').textContent = `${name} — Kursverlauf`;
+  delete stockData[symbol + currentRange];
+  if (chartMode === 'live') {
+    createTVWidget(symbol, currentTVInterval);
+  } else {
+    loadChart(symbol, name, currentRange, true);
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ═══════════════════════════════════════════
+//  LOAD COMMODITIES
+// ═══════════════════════════════════════════
+async function loadCommodities() {
+  const grid = document.getElementById('commoditiesGrid');
+  grid.innerHTML = COMMODITIES.map(c => `
+    <div class="commodity-card" id="comm-${c.symbol.replace('=','_')}">
+      <div class="commodity-icon">${c.icon}</div>
+      <div class="commodity-name">${c.name}</div>
+      <div class="commodity-price skeleton" style="width:80px;height:24px;">&nbsp;</div>
+      <div class="commodity-change">&nbsp;</div>
+    </div>`).join('');
+
+  await Promise.allSettled(COMMODITIES.map(async c => {
+    try {
+      const r = await fetchYahoo(c.symbol, '6mo');
+      const quotes = r.indicators?.quote?.[0];
+      const closes = quotes?.close?.filter(v => v !== null && v !== undefined);
+      if (!closes || closes.length < 2) return;
+      const meta = r.meta;
+      const price = meta.regularMarketPrice || closes[closes.length-1];
+      const prev = meta.chartPreviousClose || closes[closes.length-2];
+      const changePct = ((price - prev) / prev) * 100;
+      const isPos = changePct >= 0;
+      const score = calcTAScore(closes);
+      const sig = taScoreToSignal(score);
+      const barColor = score >= 57 ? 'var(--green)' : score >= 43 ? 'var(--yellow)' : 'var(--red)';
+      const id = c.symbol.replace('=','_');
+      const el = document.getElementById('comm-' + id);
+      if (!el) return;
+      el.style.cursor = 'pointer';
+      el.onclick = () => selectCompany(c.symbol, c.name);
+      el.innerHTML = `
+        <div class="commodity-icon">${c.icon}</div>
+        <div class="commodity-name">${c.name} · ${c.unit}</div>
+        <div class="commodity-price">${price.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+        <div class="commodity-change ${isPos?'pos':'neg'}">${isPos?'+':''}${changePct.toFixed(2)}%</div>
+        <div class="ta-bar-wrap" style="margin-top:6px">
+          <div class="ta-bar"><div class="ta-bar-fill" style="width:${score}%;background:${barColor}"></div></div>
+          <div class="ta-pct" style="color:${barColor};font-size:11px">${score}%</div>
+        </div>
+        <div class="commodity-ta" style="color:${sig.color}">${sig.label}</div>`;
+    } catch(e) { /* skip */ }
+  }));
+}
+
+// ═══════════════════════════════════════════
+//  LOAD NEWS
+// ═══════════════════════════════════════════
+async function loadNews() {
+  const list = document.getElementById('newsList');
+
+  // Try Finnhub first if key available
+  const key = FINNHUB_KEY();
+  if (key) {
+    try {
+      const url = `https://finnhub.io/api/v1/news?category=general&token=${key}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        renderNews(data.slice(0, 15).map(item => ({
+          headline: item.headline,
+          source: item.source,
+          time: new Date(item.datetime * 1000),
+          url: item.url,
+          summary: item.summary,
+        })));
+        return;
+      }
+    } catch(e) { /* fallback */ }
+  }
+
+  // Fallback: GNews RSS via proxy
+  try {
+    const rssUrl = 'https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GDAXI&region=DE&lang=de-DE';
+    const data = await fetchProxy(rssUrl);
+    // data is XML string - parse it
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(typeof data === 'string' ? data : JSON.stringify(data), 'text/xml');
+    const items = xml.querySelectorAll('item');
+    if (items.length > 0) {
+      const news = Array.from(items).slice(0, 12).map(item => ({
+        headline: item.querySelector('title')?.textContent || '',
+        source: 'Yahoo Finance',
+        time: new Date(item.querySelector('pubDate')?.textContent),
+        url: item.querySelector('link')?.textContent || '#',
+        summary: item.querySelector('description')?.textContent || '',
+      }));
+      renderNews(news);
+      return;
+    }
+  } catch(e) { /* fallback */ }
+
+  // Last fallback: static curated DAX-relevant news sources
+  try {
+    const rssFeeds = [
+      'https://www.finanzen.net/rss/news',
+      'https://feeds.reuters.com/reuters/businessNews',
+    ];
+    for (const feed of rssFeeds) {
+      try {
+        const raw = await fetchProxy(feed);
+        if (typeof raw === 'string') {
+          const parser = new DOMParser();
+          const xml = parser.parseFromString(raw, 'text/xml');
+          const items = xml.querySelectorAll('item');
+          if (items.length > 0) {
+            const news = Array.from(items).slice(0, 12).map(item => ({
+              headline: item.querySelector('title')?.textContent || '',
+              source: new URL(feed).hostname.replace('www.','').replace('feeds.',''),
+              time: new Date(item.querySelector('pubDate')?.textContent),
+              url: item.querySelector('link')?.textContent || '#',
+              summary: item.querySelector('description')?.textContent?.replace(/<[^>]*>/g,'') || '',
+            }));
+            renderNews(news);
+            return;
+          }
+        }
+      } catch(e2) { /* try next */ }
+    }
+  } catch(e) { /* give up */ }
+
+  list.innerHTML = `<div style="text-align:center;padding:24px;color:var(--muted)">
+    <div style="font-size:24px;margin-bottom:8px">📰</div>
+    Nachrichten konnten nicht geladen werden.<br>
+    <small>Tipp: Füge einen <strong>Finnhub API-Key</strong> in den Einstellungen hinzu (kostenlos auf finnhub.io).</small>
+  </div>`;
+}
+
+function renderNews(items) {
+  const list = document.getElementById('newsList');
+  if (!items.length) {
+    list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted)">Keine Nachrichten verfügbar.</div>';
+    return;
+  }
+
+  const daxKeywords = ['DAX','Deutschland','Bundesbank','Frankfurt','Bund','EZB','ECB','Euro','MSCI','Fed','Zinsen','Inflation','Konjunktur','Rezession','Aktien','Börse'];
+  list.innerHTML = items.map(item => {
+    const headUpper = (item.headline || '').toUpperCase();
+    const isDaxRelated = daxKeywords.some(k => headUpper.includes(k.toUpperCase()));
+    const impact = isDaxRelated ? 'high' : 'med';
+    const timeStr = item.time && !isNaN(item.time) ?
+      item.time.toLocaleTimeString('de-DE', { hour:'2-digit', minute:'2-digit' }) + ' · ' +
+      item.time.toLocaleDateString('de-DE', { day:'2-digit', month:'short' }) : '';
+
+    const safeUrl = (item.url || '#').startsWith('http') ? item.url : '#';
+    return `<a class="news-item" href="${safeUrl}" target="_blank" rel="noopener">
+      <div class="news-impact impact-${impact}"></div>
+      <div class="news-body">
+        <div class="news-headline">${item.headline || '—'}</div>
+        <div class="news-meta">
+          <span class="news-source">${item.source || ''}</span>
+          <span>${timeStr}</span>
+          ${isDaxRelated ? '<span style="color:var(--blue)">🇩🇪 DAX-relevant</span>' : ''}
+        </div>
+      </div>
+    </a>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════
+function safeSet(id, val, cls) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = val;
+  if (cls) el.className = cls;
+}
+
+function formatVolume(v) {
+  if (v >= 1e9) return (v/1e9).toFixed(1) + 'B';
+  if (v >= 1e6) return (v/1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return (v/1e3).toFixed(0) + 'K';
+  return v.toString();
+}
+
+function updateClock() {
+  const now = new Date();
+  document.getElementById('updateTime').textContent =
+    'Stand: ' + now.toLocaleTimeString('de-DE', { hour:'2-digit', minute:'2-digit' });
+}
+
+// ═══════════════════════════════════════════
+//  SETTINGS
+// ═══════════════════════════════════════════
+function openSettings() {
+  document.getElementById('finnhubKeyInput').value = FINNHUB_KEY();
+  document.getElementById('settingsModal').classList.remove('hidden');
+}
+function closeSettings() {
+  document.getElementById('settingsModal').classList.add('hidden');
+}
+function saveSettings() {
+  const key = document.getElementById('finnhubKeyInput').value.trim();
+  if (key) localStorage.setItem('finnhub_key', key);
+  else localStorage.removeItem('finnhub_key');
+  closeSettings();
+  loadNews(); // reload news with new key
+}
+
+// ═══════════════════════════════════════════
+//  AUTO-REFRESH
+// ═══════════════════════════════════════════
+function toggleAutoRefresh() {
+  autoRefreshActive = !autoRefreshActive;
+  const toggle = document.getElementById('autoRefreshToggle');
+  const label  = document.getElementById('autoRefreshLabel');
+  const countdown = document.getElementById('countdownBadge');
+  const dot = document.getElementById('liveDot');
+
+  toggle.classList.toggle('on', autoRefreshActive);
+  label.textContent = autoRefreshActive ? 'An' : 'Aus';
+  countdown.style.display = autoRefreshActive ? 'inline-block' : 'none';
+  dot.style.display = autoRefreshActive ? 'inline-block' : 'none';
+
+  if (autoRefreshActive) {
+    startCountdown();
+  } else {
+    clearInterval(autoRefreshTimer);
+    clearInterval(countdownTimer);
+    autoRefreshTimer = null; countdownTimer = null;
+  }
+}
+
+function getIntervalSeconds() {
+  return parseInt(document.getElementById('intervalSelect').value) || 30;
+}
+
+function updateInterval() {
+  if (autoRefreshActive) {
+    clearInterval(autoRefreshTimer);
+    clearInterval(countdownTimer);
+    startCountdown();
+  }
+}
+
+function startCountdown() {
+  countdownSeconds = getIntervalSeconds();
+  document.getElementById('countdownBadge').textContent = fmtCountdown(countdownSeconds);
+
+  // Immediate quick refresh
+  quickRefresh();
+
+  countdownTimer = setInterval(() => {
+    countdownSeconds--;
+    if (countdownSeconds <= 0) {
+      countdownSeconds = getIntervalSeconds();
+      quickRefresh();
+    }
+    document.getElementById('countdownBadge').textContent = fmtCountdown(countdownSeconds);
+  }, 1000);
+}
+
+function fmtCountdown(s) {
+  if (s >= 60) return `${Math.floor(s/60)}m${String(s%60).padStart(2,'0')}s`;
+  return `${s}s`;
+}
+
+// ═══════════════════════════════════════════
+//  CHART CONTROLS
+// ═══════════════════════════════════════════
+function changeRange(range) {
+  currentRange = range;
+  document.querySelectorAll('.chart-tab').forEach(t => t.classList.remove('active'));
+  const tabId = 'tab-' + range;
+  const tabEl = document.getElementById(tabId);
+  if (tabEl) tabEl.classList.add('active');
+  else event?.target?.classList.add('active');
+  delete stockData[currentSymbol + currentRange];
+  loadChart(currentSymbol, currentSymbolName, currentRange, true);
+}
+
+function changeSymbol() {
+  const sel = document.getElementById('symbolSelect');
+  currentSymbol = sel.value;
+  const opt = sel.options[sel.selectedIndex];
+  currentSymbolName = opt.textContent.split('(')[0].trim();
+  document.getElementById('chartTitle').textContent = `${currentSymbolName} — Kursverlauf`;
+  delete stockData[currentSymbol + currentRange];
+  if (chartMode === 'live') {
+    createTVWidget(currentSymbol, currentTVInterval);
+  } else {
+    loadChart(currentSymbol, currentSymbolName, currentRange, true);
+  }
+}
+
+// ═══════════════════════════════════════════
+//  MAIN LOAD
+// ═══════════════════════════════════════════
+async function loadAll() {
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('loading');
+  document.getElementById('refreshIcon').textContent = '⟳';
+  stockData = {};
+
+  try {
+    // Live chart: init TradingView (always, regardless of mode)
+    if (chartMode === 'live') {
+      createTVWidget(currentSymbol, currentTVInterval);
+    }
+
+    // Load in parallel where possible
+    await Promise.all([
+      loadDAXQuote(),
+      chartMode === 'analyse' ? loadChart('^GDAXI', 'DAX 40 Index', currentRange) : Promise.resolve(),
+    ]);
+
+    // Then companies and commodities and news
+    await Promise.all([
+      loadCommodities(),
+      loadNews(),
+    ]);
+
+    // Companies last (many API calls)
+    await loadCompanies();
+
+  } catch(e) {
+    document.getElementById('errorBanner').style.display = 'block';
+    setTimeout(() => document.getElementById('errorBanner').style.display = 'none', 5000);
+  }
+
+  updateClock();
+  btn.classList.remove('loading');
+  document.getElementById('refreshIcon').textContent = '↻';
+  document.getElementById('loadingOverlay').classList.add('hidden');
+}
+
+// ═══════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  setInterval(updateClock, 1000); // clock always ticks
+  loadAll();
+});
+</script>
+</body>
+</html>
