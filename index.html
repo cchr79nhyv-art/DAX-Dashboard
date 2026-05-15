@@ -1028,38 +1028,128 @@ function linearRegression(y) {
   return { slope, intercept };
 }
 
+// ── Box-Muller: Normalverteilte Zufallszahl ──
+function gaussianRandom() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+// ── Tagesrenditen → annualisierte Volatilität & Drift ──
+function calcAnnualizedStats(closes) {
+  const returns = [];
+  for (let i = 1; i < closes.length; i++) {
+    if (closes[i] > 0 && closes[i-1] > 0)
+      returns.push(Math.log(closes[i] / closes[i-1]));
+  }
+  if (returns.length < 5) return { dailyMu: 0, dailySigma: 0.01 };
+  const n = returns.length;
+  const mean = returns.reduce((a, b) => a + b, 0) / n;
+  const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / Math.max(n - 1, 1);
+  return { dailyMu: mean, dailySigma: Math.sqrt(variance) };
+}
+
+// ── Historisches Pattern-Matching: ähnliche Marktphasen suchen ──
+function findSimilarPatterns(closes, projDays) {
+  if (closes.length < 60) return null;
+  const rsiArr = calcRSI(closes, 14);
+  const ma50   = calcSMA(closes, Math.min(50, closes.length));
+
+  const curRSI    = rsiArr[rsiArr.length - 1] || 50;
+  const lookback  = 20;
+  const curRet20  = closes.length > lookback
+    ? (closes[closes.length-1] / closes[closes.length-1-lookback] - 1) * 100 : 0;
+  const lastMA50  = ma50[ma50.length-1];
+  const curVsMA50 = lastMA50 ? (closes[closes.length-1] / lastMA50 - 1) * 100 : 0;
+
+  const candidates = [];
+  const minIdx = 50;
+  const maxIdx = closes.length - projDays - 2;
+
+  for (let i = minIdx; i < maxIdx; i++) {
+    const hRSI   = rsiArr[i] || 50;
+    const hRet   = i >= lookback ? (closes[i] / closes[i-lookback] - 1) * 100 : 0;
+    const hMA50  = ma50[i];
+    const hVsMA  = hMA50 ? (closes[i] / hMA50 - 1) * 100 : 0;
+
+    const score =
+      Math.abs(curRSI - hRSI) * 0.5 +
+      Math.abs(curRet20 - hRet) * 0.3 +
+      Math.abs(curVsMA50 - hVsMA) * 0.2;
+
+    candidates.push({ i, score });
+  }
+  candidates.sort((a, b) => a.score - b.score);
+
+  const top = candidates.slice(0, 12);
+  const lastPrice = closes[closes.length - 1];
+
+  // Zukünftige Renditen aus ähnlichen Perioden normiert auf aktuellen Preis
+  const futurePaths = top.map(({ i }) =>
+    Array.from({ length: projDays }, (_, d) => {
+      const fp = closes[i + 1 + d];
+      return fp != null ? lastPrice * (fp / closes[i]) : null;
+    })
+  );
+
+  // Mittelwert (Median) der Pattern-Pfade
+  const patternMedian = Array.from({ length: projDays }, (_, d) => {
+    const vals = futurePaths.map(p => p[d]).filter(v => v != null).sort((a,b)=>a-b);
+    if (!vals.length) return null;
+    return vals[Math.floor(vals.length / 2)];
+  });
+
+  return { futurePaths, patternMedian };
+}
+
+// ── Monte-Carlo GBM Simulation ──
 function projectFuture(closes, projDays) {
-  const sample = closes.slice(-Math.min(30, closes.length));
-  const { slope, intercept } = linearRegression(sample);
-  const n = sample.length;
+  const lastPrice = closes[closes.length - 1];
+  const { dailyMu, dailySigma } = calcAnnualizedStats(closes.slice(-252));
+  const NUM_PATHS = 30;
 
-  // Residuals for confidence band
-  const residuals = sample.map((v, i) => v - (intercept + slope * i));
-  const stdDev = Math.sqrt(residuals.reduce((s, r) => s + r * r, 0) / residuals.length);
-
-  // Last real timestamp (or approximate)
-  const future = [], futureUpper = [], futureLower = [], futureLabels = [];
-  const lastClose = closes[closes.length - 1];
-
-  // Anchor: the last real point (null = gap between real and projected)
-  const anchor = lastClose;
-
-  for (let i = 1; i <= projDays; i++) {
-    const projected = intercept + slope * (n - 1 + i);
-    // Scale so projection always starts exactly at last real close
-    const drift = projected - (intercept + slope * (n - 1));
-    const val = anchor + drift;
-    future.push(Math.round(val * 100) / 100);
-    futureUpper.push(Math.round((val + 1.5 * stdDev) * 100) / 100);
-    futureLower.push(Math.round((val - 1.5 * stdDev) * 100) / 100);
-    futureLabels.push(`+${i}T Prognose`);
+  // Geometrische Brownsche Bewegung mit historischer Volatilität
+  const allPaths = [];
+  for (let p = 0; p < NUM_PATHS; p++) {
+    const path = [lastPrice];
+    for (let d = 0; d < projDays; d++) {
+      const logRet = (dailyMu - 0.5 * dailySigma * dailySigma) + dailySigma * gaussianRandom();
+      path.push(path[path.length-1] * Math.exp(logRet));
+    }
+    allPaths.push(path);
   }
 
-  const direction = slope >= 0 ? '↑ Aufwärts' : '↓ Abwärts';
-  const strength = Math.abs(slope / stdDev);
-  const confidence = Math.min(95, Math.round(40 + strength * 20));
+  // Perzentile an jedem Zeitschritt
+  const pct = (arr, p) => {
+    const s = [...arr].sort((a, b) => a - b);
+    return s[Math.max(0, Math.floor(s.length * p))];
+  };
+  const median = [], p25 = [], p75 = [], p10 = [], p90 = [];
+  for (let d = 1; d <= projDays; d++) {
+    const vals = allPaths.map(path => path[d]);
+    median.push(pct(vals, 0.50));
+    p25.push(pct(vals, 0.25));
+    p75.push(pct(vals, 0.75));
+    p10.push(pct(vals, 0.10));
+    p90.push(pct(vals, 0.90));
+  }
 
-  return { future, futureUpper, futureLower, futureLabels, slope, stdDev, direction, confidence };
+  // Historisches Pattern-Matching
+  const patterns = findSimilarPatterns(closes, projDays);
+
+  const finalMedian = median[median.length - 1] || lastPrice;
+  const direction = finalMedian >= lastPrice ? '↑ Aufwärts' : '↓ Abwärts';
+  const expectedReturn = ((finalMedian / lastPrice) - 1) * 100;
+  const annualVol = dailySigma * Math.sqrt(252) * 100;
+
+  return {
+    allPaths,     // alle 30 Simulationspfade (inkl. Startpunkt)
+    median, p25, p75, p10, p90,
+    patternMedian: patterns?.patternMedian || null,
+    direction, expectedReturn, annualVol,
+    projDays,
+  };
 }
 
 function calcTAScore(closes) {
@@ -1162,71 +1252,110 @@ function renderMainChart(timestamps, closes, name, isIntraday, noAnimation) {
   const ma50  = calcSMA(closes, Math.min(50, closes.length));
   const bb    = calcBollinger(closes, Math.min(20, Math.floor(closes.length / 2)), 2);
 
-  // Future line datasets
+  // ── Zukunftslinie: Monte-Carlo + Pattern Matching ──
   const projDays = parseInt(document.getElementById('projDaysSelect').value) || 10;
-  const proj = projectFuture(closes, projDays);
+  const proj = futureLineActive ? projectFuture(closes, projDays) : null;
 
-  // Pad historical datasets with null for future slots, and future with null for historical slots
-  const totalLen = closes.length + projDays;
-  const histPad  = Array(projDays).fill(null);
-  const prevPad  = Array(closes.length - 1).fill(null);
-
-  // The future starts at the last close (anchor)
-  const futureData    = [...prevPad, closes[closes.length - 1], ...proj.future];
-  const futureUpper   = [...prevPad, closes[closes.length - 1], ...proj.futureUpper];
-  const futureLower   = [...prevPad, closes[closes.length - 1], ...proj.futureLower];
-
-  // Generate future labels
-  const futureLabels = proj.futureLabels.map((_, i) => {
+  // Labels für Zukunft (Handelstage vorwärts)
+  const futureLabels = Array.from({ length: projDays }, (_, i) => {
     if (isIntraday) return `+${i+1}Min`;
     const d = new Date();
     d.setDate(d.getDate() + i + 1);
-    // skip weekends
     while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
     return d.toLocaleDateString('de-DE', { day:'2-digit', month:'short' });
   });
 
-  const allLabels = [...labels, ...futureLabels];
+  const allLabels = [...labels, ...(futureLineActive ? futureLabels : [])];
+  const futSlots  = futureLineActive ? projDays : 0;
+  const prevPad   = Array(closes.length - 1).fill(null);
+  const futurePad = Array(projDays).fill(null);
+  const anchor    = closes[closes.length - 1];
 
-  const histCloses   = [...closes, ...Array(projDays).fill(null)];
-  const histMA20     = [...ma20, ...Array(projDays).fill(null)];
-  const histMA50     = [...ma50, ...Array(projDays).fill(null)];
-  const histBBU      = [...bb.upper, ...Array(projDays).fill(null)];
-  const histBBL      = [...bb.lower, ...Array(projDays).fill(null)];
+  const histCloses = [...closes, ...Array(futSlots).fill(null)];
+  const histMA20   = [...ma20,   ...Array(futSlots).fill(null)];
+  const histMA50   = [...ma50,   ...Array(futSlots).fill(null)];
+  const histBBU    = [...bb.upper,...Array(futSlots).fill(null)];
+  const histBBL    = [...bb.lower,...Array(futSlots).fill(null)];
 
-  const futureDatasets = futureLineActive ? [
-    {
-      label: `Prognose ${proj.direction} (${proj.confidence}% Konfidenz)`,
-      data: futureData,
-      borderColor: '#ffd600',
-      borderWidth: 2,
-      borderDash: [6, 4],
-      pointRadius: 0,
-      tension: 0.3,
-      fill: false,
-      order: 0,
-    },
-    {
-      label: 'Prognose Oberkante',
-      data: futureUpper,
-      borderColor: 'rgba(255,214,0,0.25)',
+  // Helper: einen Pfad als Chart-Dataset aufbereiten (mit Anchor am Übergang)
+  const padFuture = (arr) => [...prevPad, anchor, ...arr];
+
+  const futureDatasets = (futureLineActive && proj) ? [
+    // 30 GBM-Simulationspfade — sehr transparent, zeigen die Streuung
+    ...proj.allPaths.slice(1, 20).map((path, idx) => ({
+      label: `_sim${idx}`,
+      data: padFuture(path.slice(1)),
+      borderColor: 'rgba(255,214,0,0.06)',
       borderWidth: 1,
       pointRadius: 0,
-      tension: 0.3,
+      tension: 0.5,
       fill: false,
-      order: 0,
+      order: 15,
+    })),
+    // 80%-Konfidenzband (P10–P90) — sehr fein
+    {
+      label: '80% Konfidenzband',
+      data: padFuture(proj.p90),
+      borderColor: 'rgba(255,180,0,0.15)',
+      borderWidth: 0,
+      pointRadius: 0,
+      fill: false,
+      order: 12,
     },
     {
-      label: 'Prognose Unterkante',
-      data: futureLower,
-      borderColor: 'rgba(255,214,0,0.25)',
-      borderWidth: 1,
+      label: '_p10',
+      data: padFuture(proj.p10),
+      borderColor: 'rgba(255,180,0,0.15)',
+      borderWidth: 0,
       pointRadius: 0,
-      tension: 0.3,
       fill: '-1',
-      backgroundColor: 'rgba(255,214,0,0.06)',
-      order: 0,
+      backgroundColor: 'rgba(255,180,0,0.04)',
+      order: 12,
     },
+    // 50%-Konfidenzband (P25–P75) — sichtbarer
+    {
+      label: '50% Konfidenzband',
+      data: padFuture(proj.p75),
+      borderColor: 'rgba(255,214,0,0.25)',
+      borderWidth: 0,
+      pointRadius: 0,
+      fill: false,
+      order: 11,
+    },
+    {
+      label: '_p25',
+      data: padFuture(proj.p25),
+      borderColor: 'rgba(255,214,0,0.25)',
+      borderWidth: 0,
+      pointRadius: 0,
+      fill: '-1',
+      backgroundColor: 'rgba(255,214,0,0.09)',
+      order: 11,
+    },
+    // GBM-Median (erwarteter Pfad)
+    {
+      label: `GBM Median ${proj.direction} (${proj.expectedReturn >= 0 ? '+' : ''}${proj.expectedReturn.toFixed(1)}% | Vol ${proj.annualVol.toFixed(0)}%/J)`,
+      data: padFuture(proj.median),
+      borderColor: '#ffd600',
+      borderWidth: 2.5,
+      borderDash: [7, 3],
+      pointRadius: 0,
+      tension: 0.45,
+      fill: false,
+      order: 8,
+    },
+    // Historisches Muster (Pattern Matching)
+    ...(proj.patternMedian ? [{
+      label: 'Hist. Muster-Ø (ähnl. Marktphasen)',
+      data: padFuture(proj.patternMedian.map(v => v ?? null)),
+      borderColor: '#ff6d00',
+      borderWidth: 2,
+      borderDash: [4, 4],
+      pointRadius: 0,
+      tension: 0.45,
+      fill: false,
+      order: 7,
+    }] : []),
   ] : [];
 
   const cfg = {
@@ -1361,12 +1490,15 @@ function renderMainChart(timestamps, closes, name, isIntraday, noAnimation) {
   });
   if (needsUpdate) mainChartInst.update('none');
 
-  // Update prognose info
-  if (futureLineActive) {
-    const dirColor = proj.slope >= 0 ? 'var(--green)' : 'var(--red)';
+  // Prognose-Hinweis
+  if (futureLineActive && proj) {
+    const dirColor = proj.expectedReturn >= 0 ? 'var(--green)' : 'var(--red)';
     document.getElementById('prognoseNote').style.display = 'block';
     document.getElementById('prognoseNote').innerHTML =
-      `⚠️ <strong>Zukunftslinie:</strong> Lineare Regression der letzten 30 Kerzen → <span style="color:${dirColor};font-weight:700">${proj.direction}</span> · Konfidenz: <strong>${proj.confidence}%</strong> · Konfidenzband: ±1,5σ · <em>Keine Anlageberatung.</em>`;
+      `⚠️ <strong>Monte-Carlo GBM (${proj.allPaths.length} Pfade) + Hist. Pattern-Matching.</strong> ` +
+      `Erwartete Rendite: <span style="color:${dirColor};font-weight:700">${proj.direction} ${proj.expectedReturn >= 0 ? '+' : ''}${proj.expectedReturn.toFixed(1)}%</span> ` +
+      `· Hist. Volatilität: <strong>${proj.annualVol.toFixed(0)}%/J</strong> ` +
+      `· Gelb gestrichelt = GBM-Median · Orange = Ø ähnlicher Vergangenheitsmuster. <em>Keine Anlageberatung.</em>`;
   } else {
     document.getElementById('prognoseNote').style.display = 'none';
   }
