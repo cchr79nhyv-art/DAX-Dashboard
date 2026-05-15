@@ -563,22 +563,23 @@
           </div>
           <button class="future-btn" id="futureBtnEl" onclick="toggleFutureLine()">📈 Zukunftslinie</button>
           <select class="proj-days-select" id="projDaysSelect" onchange="redrawChartWithFuture()">
-            <option value="5">5 Tage</option>
-            <option value="10" selected>10 Tage</option>
-            <option value="20">20 Tage</option>
-            <option value="30">1 Monat</option>
+            <option value="1">1 Tag</option>
+            <option value="5">1 Woche</option>
+            <option value="10" selected>2 Wochen</option>
+            <option value="21">1 Monat</option>
           </select>
           <span class="intraday-badge" id="intradayBadge" style="display:none">⚡ Intraday 1Min</span>
         </div>
-        <!-- Live-only: TV interval -->
+        <!-- Live-only: TV range+interval presets -->
         <div id="liveControls" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-          <span style="font-size:11px;color:var(--muted)">Intervall:</span>
+          <span style="font-size:11px;color:var(--muted)">Ansicht:</span>
           <div class="chart-tabs" id="tvIntervalTabs">
-            <button class="chart-tab" onclick="setTVInterval('1')">1Min</button>
-            <button class="chart-tab" onclick="setTVInterval('5')">5Min</button>
-            <button class="chart-tab" onclick="setTVInterval('15')">15Min</button>
-            <button class="chart-tab active" onclick="setTVInterval('D')">1T</button>
-            <button class="chart-tab" onclick="setTVInterval('W')">1W</button>
+            <button class="chart-tab" onclick="setTVView('1','1D')">Intraday 1Min</button>
+            <button class="chart-tab" onclick="setTVView('5','1D')">Intraday 5Min</button>
+            <button class="chart-tab" onclick="setTVView('15','5D')">15Min / 5T</button>
+            <button class="chart-tab" onclick="setTVView('60','1M')">Stündlich</button>
+            <button class="chart-tab active" onclick="setTVView('D','6M')">Täglich</button>
+            <button class="chart-tab" onclick="setTVView('W','60M')">Wöchentlich</button>
           </div>
         </div>
         <select id="symbolSelect" onchange="changeSymbol()" style="background:var(--card2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:6px;font-size:12px;">
@@ -787,18 +788,18 @@ function toTVSymbol(yahooSym) {
   return TV_SYMBOLS[yahooSym] || ('XETR:' + yahooSym.replace('.DE','').replace('=F',''));
 }
 
-function createTVWidget(symbol, interval) {
+function createTVWidget(symbol, interval, range) {
   const tvSym = toTVSymbol(symbol);
   const container = document.getElementById('tv_chart_container');
-  container.innerHTML = ''; // clear
+  container.innerHTML = '';
 
   if (typeof TradingView === 'undefined') {
     container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px;">TradingView wird geladen...</div>';
-    setTimeout(() => createTVWidget(symbol, interval), 1000);
+    setTimeout(() => createTVWidget(symbol, interval, range), 1000);
     return;
   }
 
-  tvWidget = new TradingView.widget({
+  const cfg = {
     container_id: 'tv_chart_container',
     width: '100%',
     height: 420,
@@ -806,7 +807,7 @@ function createTVWidget(symbol, interval) {
     interval: interval || currentTVInterval,
     timezone: 'Europe/Berlin',
     theme: 'dark',
-    style: '1', // candlestick
+    style: '1',
     locale: 'de_DE',
     toolbar_bg: '#141928',
     enable_publishing: false,
@@ -826,14 +827,22 @@ function createTVWidget(symbol, interval) {
       'paneProperties.horzGridProperties.color': 'rgba(37,45,71,0.4)',
       'scalesProperties.textColor': '#7a8aaa',
     },
-  });
+  };
+
+  // Füge range hinzu wenn angegeben (z.B. '1D' für Intraday)
+  if (range || currentTVRange) cfg.range = range || currentTVRange;
+
+  tvWidget = new TradingView.widget(cfg);
 }
 
-function setTVInterval(interval) {
+let currentTVRange = '6M';
+
+function setTVView(interval, range) {
   currentTVInterval = interval;
+  currentTVRange = range;
   document.querySelectorAll('#tvIntervalTabs .chart-tab').forEach(t => t.classList.remove('active'));
   event.target.classList.add('active');
-  createTVWidget(currentSymbol, interval);
+  createTVWidget(currentSymbol, interval, range);
 }
 
 function setChartMode(mode) {
@@ -936,15 +945,16 @@ async function fetchQuote(symbol) {
   return data?.chart?.result?.[0];
 }
 
-// Quick refresh: only reload price data, not full companies
+// Quick refresh: nur Kurse neu laden, Chart-Zustand (Linien ein/aus) erhalten
 async function quickRefresh() {
   try {
-    await loadDAXQuote(); // always refresh the hero price
+    await loadDAXQuote();
     if (chartMode === 'analyse') {
       delete stockData[currentSymbol + currentRange];
-      await loadChart(currentSymbol, currentSymbolName, currentRange, true);
+      // noAnimation=true → kein Sprung, Linienzustände bleiben erhalten
+      await loadChart(currentSymbol, currentSymbolName, currentRange, true, true);
     }
-    // In live mode: TradingView updates itself in real-time — nothing to do
+    // Live-Modus: TradingView aktualisiert sich selbst — nichts zu tun
     updateClock();
   } catch(e) { /* silent */ }
 }
@@ -1138,7 +1148,10 @@ function taScoreToSignal(score) {
 // ═══════════════════════════════════════════
 //  CHARTS
 // ═══════════════════════════════════════════
-function renderMainChart(timestamps, closes, name, isIntraday) {
+// Speichert welche Linien vom User ausgeblendet wurden (per Label)
+let savedHiddenByLabel = {};
+
+function renderMainChart(timestamps, closes, name, isIntraday, noAnimation) {
   const labels = timestamps.map(t => {
     const d = new Date(t * 1000);
     if (isIntraday) return d.toLocaleTimeString('de-DE', { hour:'2-digit', minute:'2-digit' });
@@ -1325,8 +1338,28 @@ function renderMainChart(timestamps, closes, name, isIntraday) {
     }
   };
 
-  if (mainChartInst) mainChartInst.destroy();
+  // Zustände vor dem Destroy sichern (welche Linien hat der User ausgeblendet?)
+  if (mainChartInst) {
+    mainChartInst.data.datasets.forEach((ds, i) => {
+      savedHiddenByLabel[ds.label] = mainChartInst.getDatasetMeta(i).hidden === true;
+    });
+    mainChartInst.destroy();
+  }
+
+  // Animation beim Auto-Refresh deaktivieren
+  if (noAnimation) cfg.options.animation = false;
+
   mainChartInst = new Chart(document.getElementById('mainChart'), cfg);
+
+  // Zustand wiederherstellen — jede Linie die vorher aus war, bleibt aus
+  let needsUpdate = false;
+  mainChartInst.data.datasets.forEach((ds, i) => {
+    if (savedHiddenByLabel[ds.label] === true) {
+      mainChartInst.getDatasetMeta(i).hidden = true;
+      needsUpdate = true;
+    }
+  });
+  if (needsUpdate) mainChartInst.update('none');
 
   // Update prognose info
   if (futureLineActive) {
@@ -1339,10 +1372,10 @@ function renderMainChart(timestamps, closes, name, isIntraday) {
   }
 }
 
-function redrawChartWithFuture() {
+function redrawChartWithFuture(noAnimation) {
   if (currentCloses.length > 0 && currentTimestamps.length > 0) {
     const isIntraday = currentRange === '1d' || currentRange === '5d';
-    renderMainChart(currentTimestamps, currentCloses, currentSymbolName, isIntraday);
+    renderMainChart(currentTimestamps, currentCloses, currentSymbolName, isIntraday, noAnimation);
   }
 }
 
@@ -1426,7 +1459,7 @@ function updateIndicatorRow(closes) {
 // ═══════════════════════════════════════════
 //  LOAD MAIN CHART
 // ═══════════════════════════════════════════
-async function loadChart(symbol, name, range, forceRefresh=false) {
+async function loadChart(symbol, name, range, forceRefresh=false, noAnimation=false) {
   document.getElementById('chartTitle').textContent = `${name} — Kursverlauf`;
   const isIntraday = range === '1d' || range === '5d';
   document.getElementById('intradayBadge').style.display = isIntraday ? 'inline-block' : 'none';
@@ -1446,7 +1479,7 @@ async function loadChart(symbol, name, range, forceRefresh=false) {
     currentCloses = closes;
     currentTimestamps = validTimestamps;
 
-    renderMainChart(validTimestamps, closes, name, isIntraday);
+    renderMainChart(validTimestamps, closes, name, isIntraday, noAnimation);
     renderRSIChart(validTimestamps, closes);
     updateIndicatorRow(closes);
 
