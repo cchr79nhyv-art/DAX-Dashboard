@@ -201,23 +201,23 @@
   /* ── COMMODITIES ── */
   .commodities-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 10px;
     margin-bottom: 12px;
   }
   @media(min-width:600px) {
-    .commodities-grid { grid-template-columns: repeat(4, 1fr); }
+    .commodities-grid { grid-template-columns: repeat(6, 1fr); }
   }
   .commodity-card {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 14px;
+    border-radius: 12px;
+    padding: 10px;
   }
-  .commodity-icon { font-size: 20px; margin-bottom: 6px; }
-  .commodity-name { font-size: 11px; color: var(--muted); }
-  .commodity-price { font-size: 18px; font-weight: 800; margin: 3px 0; }
-  .commodity-change { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+  .commodity-icon { font-size: 18px; margin-bottom: 4px; }
+  .commodity-name { font-size: 10px; color: var(--muted); }
+  .commodity-price { font-size: 15px; font-weight: 800; margin: 2px 0; }
+  .commodity-change { font-size: 11px; font-weight: 600; margin-bottom: 4px; }
   .commodity-ta { font-size: 11px; color: var(--muted); margin-top: 6px; }
 
   /* ── NEWS ── */
@@ -505,9 +505,12 @@
   <!-- INDEX HERO -->
   <div class="index-hero">
     <div>
-      <div class="index-name">DAX 40 • XETRA</div>
+      <div class="index-name">DAX 40 • XETR</div>
       <div class="index-price" id="daxPrice">—</div>
       <div class="index-change" id="daxChange">—</div>
+      <div style="font-size:10px;color:var(--muted);margin:3px 0 6px;display:flex;align-items:center;gap:5px;">
+        <span>🕐</span><span id="daxSyncTime">Noch nicht geladen</span>
+      </div>
       <div class="market-status status-closed" id="marketStatus">
         <div class="status-dot"></div>
         <span id="marketStatusText">Markt geschlossen</span>
@@ -686,7 +689,9 @@ let currentTimestamps = [];   // last loaded timestamps
 // Future line state
 let futureLineActive = false;
 
-const FINNHUB_KEY = () => localStorage.getItem('finnhub_key') || '';
+// Finnhub API-Key (kostenloser Free-Tier-Key)
+const DEFAULT_FINNHUB_KEY = 'd83ighhr01qkm5c896kgd83ighhr01qkm5c896l0';
+const FINNHUB_KEY = () => localStorage.getItem('finnhub_key') || DEFAULT_FINNHUB_KEY;
 
 // ═══════════════════════════════════════════
 //  DAX 40 COMPANIES
@@ -731,40 +736,44 @@ const DAX_COMPANIES = [
 ];
 
 const COMMODITIES = [
-  { name:'Gold',     symbol:'GC=F',  icon:'🥇', unit:'USD/oz' },
-  { name:'Silber',   symbol:'SI=F',  icon:'🥈', unit:'USD/oz' },
-  { name:'Brent Öl', symbol:'BZ=F',  icon:'🛢️', unit:'USD/bbl' },
-  { name:'WTI Öl',   symbol:'CL=F',  icon:'⛽', unit:'USD/bbl' },
+  { name:'Gold',     symbol:'GC=F',    icon:'🥇', unit:'USD/oz'  },
+  { name:'Silber',   symbol:'SI=F',    icon:'🥈', unit:'USD/oz'  },
+  { name:'Brent Öl', symbol:'BZ=F',    icon:'🛢️', unit:'USD/bbl' },
+  { name:'WTI Öl',   symbol:'CL=F',    icon:'⛽', unit:'USD/bbl' },
+  { name:'Bitcoin',  symbol:'BTC-EUR', icon:'₿',  unit:'EUR'     },
+  { name:'Ethereum', symbol:'ETH-EUR', icon:'⬡',  unit:'EUR'     },
 ];
 
 // ═══════════════════════════════════════════
 //  TRADINGVIEW SYMBOL MAP
 // ═══════════════════════════════════════════
 const TV_SYMBOLS = {
-  '^GDAXI':  'XETRA:DAX',
-  'SAP.DE':  'XETRA:SAP',  'SIE.DE':  'XETRA:SIE',
-  'ALV.DE':  'XETRA:ALV',  'DTE.DE':  'XETRA:DTE',
-  'MUV2.DE': 'XETRA:MUV2', 'MBG.DE':  'XETRA:MBG',
-  'BMW.DE':  'XETRA:BMW',  'ENR.DE':  'XETRA:ENR',
-  'DBK.DE':  'XETRA:DBK',  'BAS.DE':  'XETRA:BAS',
-  'IFX.DE':  'XETRA:IFX',  'BAYN.DE': 'XETRA:BAYN',
-  'VOW3.DE': 'XETRA:VOW3', 'DHL.DE':  'XETRA:DHL',
-  'RWE.DE':  'XETRA:RWE',  'EOAN.DE': 'XETRA:EOAN',
-  'ADS.DE':  'XETRA:ADS',  'MRK.DE':  'XETRA:MRK',
-  'DB1.DE':  'XETRA:DB1',  'MTX.DE':  'XETRA:MTX',
-  'HNR1.DE': 'XETRA:HNR1', 'CBK.DE':  'XETRA:CBK',
-  'CON.DE':  'XETRA:CON',  'DTG.DE':  'XETRA:DTG',
-  'FRE.DE':  'XETRA:FRE',  'HEIG.DE': 'XETRA:HEIG',
-  'HEN3.DE': 'XETRA:HEN3', 'P911.DE': 'XETRA:P911',
-  'PAH3.DE': 'XETRA:PAH3', 'QIA.DE':  'XETRA:QIA',
-  'SRT3.DE': 'XETRA:SRT3', 'SHL.DE':  'XETRA:SHL',
-  'SY1.DE':  'XETRA:SY1',  'VNA.DE':  'XETRA:VNA',
-  'ZAL.DE':  'XETRA:ZAL',  '1COV.DE': 'XETRA:1COV',
-  // Commodities
-  'GC=F':   'OANDA:XAUUSD',
-  'SI=F':   'OANDA:XAGUSD',
-  'BZ=F':   'TVC:UKOIL',
-  'CL=F':   'TVC:USOIL',
+  '^GDAXI':  'XETR:DAX',
+  'SAP.DE':  'XETR:SAP',  'SIE.DE':  'XETR:SIE',
+  'ALV.DE':  'XETR:ALV',  'DTE.DE':  'XETR:DTE',
+  'MUV2.DE': 'XETR:MUV2', 'MBG.DE':  'XETR:MBG',
+  'BMW.DE':  'XETR:BMW',  'ENR.DE':  'XETR:ENR',
+  'DBK.DE':  'XETR:DBK',  'BAS.DE':  'XETR:BAS',
+  'IFX.DE':  'XETR:IFX',  'BAYN.DE': 'XETR:BAYN',
+  'VOW3.DE': 'XETR:VOW3', 'DHL.DE':  'XETR:DHL',
+  'RWE.DE':  'XETR:RWE',  'EOAN.DE': 'XETR:EOAN',
+  'ADS.DE':  'XETR:ADS',  'MRK.DE':  'XETR:MRK',
+  'DB1.DE':  'XETR:DB1',  'MTX.DE':  'XETR:MTX',
+  'HNR1.DE': 'XETR:HNR1', 'CBK.DE':  'XETR:CBK',
+  'CON.DE':  'XETR:CON',  'DTG.DE':  'XETR:DTG',
+  'FRE.DE':  'XETR:FRE',  'HEIG.DE': 'XETR:HEIG',
+  'HEN3.DE': 'XETR:HEN3', 'P911.DE': 'XETR:P911',
+  'PAH3.DE': 'XETR:PAH3', 'QIA.DE':  'XETR:QIA',
+  'SRT3.DE': 'XETR:SRT3', 'SHL.DE':  'XETR:SHL',
+  'SY1.DE':  'XETR:SY1',  'VNA.DE':  'XETR:VNA',
+  'ZAL.DE':  'XETR:ZAL',  '1COV.DE': 'XETR:1COV',
+  // Commodities & Crypto
+  'GC=F':    'OANDA:XAUUSD',
+  'SI=F':    'OANDA:XAGUSD',
+  'BZ=F':    'TVC:UKOIL',
+  'CL=F':    'TVC:USOIL',
+  'BTC-EUR': 'BITSTAMP:BTCEUR',
+  'ETH-EUR': 'BITSTAMP:ETHEUR',
 };
 
 // ═══════════════════════════════════════════
@@ -775,7 +784,7 @@ let tvWidget = null;
 let currentTVInterval = 'D';
 
 function toTVSymbol(yahooSym) {
-  return TV_SYMBOLS[yahooSym] || ('XETRA:' + yahooSym.replace('.DE',''));
+  return TV_SYMBOLS[yahooSym] || ('XETR:' + yahooSym.replace('.DE','').replace('=F',''));
 }
 
 function createTVWidget(symbol, interval) {
@@ -1487,6 +1496,8 @@ async function loadDAXQuote() {
 
     document.getElementById('daxPrice').textContent =
       price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    document.getElementById('daxSyncTime').textContent =
+      'Letzter Sync: ' + new Date().toLocaleTimeString('de-DE', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
     const changeEl = document.getElementById('daxChange');
     changeEl.textContent = `${isPos ? '+' : ''}${change.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})} (${isPos?'+':''}${changePct.toFixed(2)}%)`;
     changeEl.className = 'index-change ' + (isPos ? 'pos' : 'neg');
@@ -1642,13 +1653,34 @@ function selectCompany(symbol, name) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+// Fallback-Symbole falls primäres Yahoo-Symbol fehlschlägt
+const COMMODITY_FALLBACKS = {
+  'SI=F':   ['SIL=F', 'XAGUSD=X'],
+  'BZ=F':   ['EBZF.DE', 'BRN=F'],
+  'CL=F':   ['WTIC=F', 'USOIL=F'],
+  'BTC-EUR':['BTC-USD'],  // Fallback auf USD wenn EUR fehlt
+  'ETH-EUR':['ETH-USD'],
+};
+
+async function fetchCommodity(symbol, range) {
+  try {
+    return await fetchYahoo(symbol, range, true);
+  } catch(e) {
+    const fallbacks = COMMODITY_FALLBACKS[symbol] || [];
+    for (const fb of fallbacks) {
+      try { return await fetchYahoo(fb, range, true); } catch(e2) { /* try next */ }
+    }
+    throw new Error('Kein Symbol geladen: ' + symbol);
+  }
+}
+
 // ═══════════════════════════════════════════
 //  LOAD COMMODITIES
 // ═══════════════════════════════════════════
 async function loadCommodities() {
   const grid = document.getElementById('commoditiesGrid');
   grid.innerHTML = COMMODITIES.map(c => `
-    <div class="commodity-card" id="comm-${c.symbol.replace('=','_')}">
+    <div class="commodity-card" id="comm-${c.symbol.replace(/[=\-]/g,'_')}">
       <div class="commodity-icon">${c.icon}</div>
       <div class="commodity-name">${c.name}</div>
       <div class="commodity-price skeleton" style="width:80px;height:24px;">&nbsp;</div>
@@ -1657,7 +1689,7 @@ async function loadCommodities() {
 
   await Promise.allSettled(COMMODITIES.map(async c => {
     try {
-      const r = await fetchYahoo(c.symbol, '6mo');
+      const r = await fetchCommodity(c.symbol, '6mo');
       const quotes = r.indicators?.quote?.[0];
       const closes = quotes?.close?.filter(v => v !== null && v !== undefined);
       if (!closes || closes.length < 2) return;
@@ -1669,7 +1701,7 @@ async function loadCommodities() {
       const score = calcTAScore(closes);
       const sig = taScoreToSignal(score);
       const barColor = score >= 57 ? 'var(--green)' : score >= 43 ? 'var(--yellow)' : 'var(--red)';
-      const id = c.symbol.replace('=','_');
+      const id = c.symbol.replace(/[=\-]/g,'_');
       const el = document.getElementById('comm-' + id);
       if (!el) return;
       el.style.cursor = 'pointer';
@@ -1694,25 +1726,35 @@ async function loadCommodities() {
 async function loadNews() {
   const list = document.getElementById('newsList');
 
-  // Try Finnhub first if key available
+  // Finnhub News (Key ist immer vorhanden)
   const key = FINNHUB_KEY();
-  if (key) {
-    try {
-      const url = `https://finnhub.io/api/v1/news?category=general&token=${key}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        renderNews(data.slice(0, 15).map(item => ({
-          headline: item.headline,
-          source: item.source,
-          time: new Date(item.datetime * 1000),
-          url: item.url,
-          summary: item.summary,
-        })));
-        return;
-      }
-    } catch(e) { /* fallback */ }
-  }
+  try {
+    // Kombiniere allgemeine News + forex/crypto News für mehr DAX-Relevanz
+    const [generalRes, forexRes] = await Promise.allSettled([
+      fetch(`https://finnhub.io/api/v1/news?category=general&minId=0&token=${key}`, { signal: AbortSignal.timeout(8000) }),
+      fetch(`https://finnhub.io/api/v1/news?category=forex&token=${key}`, { signal: AbortSignal.timeout(8000) }),
+    ]);
+    const general = generalRes.status === 'fulfilled' ? await generalRes.value.json() : [];
+    const forex   = forexRes.status === 'fulfilled' ? await forexRes.value.json() : [];
+    const combined = [...(Array.isArray(general) ? general : []), ...(Array.isArray(forex) ? forex : [])];
+    // Sort by time desc, deduplicate
+    const seen = new Set();
+    const unique = combined.filter(item => {
+      if (!item.headline || seen.has(item.headline)) return false;
+      seen.add(item.headline);
+      return true;
+    }).sort((a, b) => b.datetime - a.datetime);
+    if (unique.length > 0) {
+      renderNews(unique.slice(0, 18).map(item => ({
+        headline: item.headline,
+        source: item.source,
+        time: new Date(item.datetime * 1000),
+        url: item.url,
+        summary: item.summary,
+      })));
+      return;
+    }
+  } catch(e) { /* fallback */ }
 
   // Fallback: GNews RSS via proxy
   try {
